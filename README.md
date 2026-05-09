@@ -1,4 +1,4 @@
-# Sub2API Kiro Edition
+# Sub2API Kiro
 
 AI API gateway for Claude Code style clients, Kiro accounts, and multi-platform account scheduling.
 
@@ -8,7 +8,7 @@ AI API gateway for Claude Code style clients, Kiro accounts, and multi-platform 
 
 ## Overview
 
-Sub2API Kiro Edition is a self-hosted AI API gateway for distributing subscription quotas across teams and clients. It keeps Sub2API's account scheduling, grouping, billing, admin UI, and OpenAI/Anthropic-compatible endpoints, and adds first-class Kiro support for Claude Code style workflows.
+Sub2API Kiro is a self-hosted AI API gateway for distributing subscription quotas across teams and clients. It keeps Sub2API's account scheduling, grouping, billing, admin UI, and OpenAI/Anthropic-compatible endpoints, and adds first-class Kiro support for Claude Code style workflows.
 
 The project is maintained for practical self-hosted deployments where Kiro accounts need to work alongside Anthropic, OpenAI, Gemini, and Antigravity accounts under one gateway.
 
@@ -50,14 +50,14 @@ Available models depend on each upstream account and the model mappings configur
 The recommended image for this fork is:
 
 ```bash
-ghcr.io/xiangking/sub2api:latest
+ghcr.io/xiangking/sub2api-kiro:latest
 ```
 
 Compose deployment:
 
 ```bash
-mkdir -p sub2api-deploy && cd sub2api-deploy
-curl -sSL https://raw.githubusercontent.com/xiangking/sub2api/main/deploy/docker-deploy.sh | bash
+mkdir -p sub2api-kiro-deploy && cd sub2api-kiro-deploy
+curl -sSL https://raw.githubusercontent.com/xiangking/sub2api-kiro/main/deploy/docker-deploy.sh | bash
 docker compose up -d
 docker compose logs -f sub2api
 ```
@@ -65,8 +65,8 @@ docker compose logs -f sub2api
 Manual clone:
 
 ```bash
-git clone https://github.com/xiangking/sub2api.git
-cd sub2api/deploy
+git clone https://github.com/xiangking/sub2api-kiro.git
+cd sub2api-kiro/deploy
 cp .env.example .env
 docker compose -f docker-compose.local.yml up -d
 ```
@@ -123,7 +123,7 @@ Avoid blind merges when they conflict with the Kiro-specific product direction.
 
 This project is derived from [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api). Thanks to the original author and contributors for the foundation.
 
-The Go module path currently remains `github.com/Wei-Shaw/sub2api` to avoid a high-risk import-path churn. Public repository, Docker image, and documentation are maintained under `xiangking/sub2api`.
+The Go module path currently remains `github.com/Wei-Shaw/sub2api` to avoid a high-risk import-path churn. Public repository, Docker image, and documentation are maintained under `xiangking/sub2api-kiro`.
 
 ## Disclaimer
 

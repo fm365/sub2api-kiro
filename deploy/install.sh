@@ -2,7 +2,7 @@
 #
 # Sub2API Installation Script
 # Sub2API 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/xiangking/sub2api/main/deploy/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/xiangking/sub2api-kiro/main/deploy/install.sh | bash
 #
 
 set -e
@@ -16,7 +16,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="xiangking/sub2api"
+GITHUB_REPO="xiangking/sub2api-kiro"
 INSTALL_DIR="/opt/sub2api"
 SERVICE_NAME="sub2api"
 SERVICE_USER="sub2api"
@@ -553,7 +553,7 @@ get_current_version() {
 # Download and extract
 download_and_extract() {
     local version_num=${LATEST_VERSION#v}
-    local archive_name="sub2api_${version_num}_${OS}_${ARCH}.tar.gz"
+    local archive_name="sub2api-kiro_${version_num}_${OS}_${ARCH}.tar.gz"
     local download_url="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/${archive_name}"
     local checksum_url="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/checksums.txt"
 
@@ -655,7 +655,7 @@ install_service() {
     cat > /etc/systemd/system/sub2api.service << EOF
 [Unit]
 Description=Sub2API - AI API Gateway Platform
-Documentation=https://github.com/xiangking/sub2api
+Documentation=https://github.com/xiangking/sub2api-kiro
 After=network.target postgresql.service redis.service
 Wants=postgresql.service redis.service
 

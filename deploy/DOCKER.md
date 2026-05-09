@@ -1,11 +1,11 @@
-# Sub2API Kiro Edition Docker Image
+# Sub2API Kiro Docker Image
 
 Self-hosted AI API gateway with first-class Kiro support for Claude Code style clients.
 
 ## Image
 
 ```bash
-ghcr.io/xiangking/sub2api:latest
+ghcr.io/xiangking/sub2api-kiro:latest
 ```
 
 ## Quick Start
@@ -16,7 +16,7 @@ docker run -d \
   -p 8080:8080 \
   -e DATABASE_URL="postgres://user:pass@host:5432/sub2api" \
   -e REDIS_URL="redis://host:6379" \
-  ghcr.io/xiangking/sub2api:latest
+  ghcr.io/xiangking/sub2api-kiro:latest
 ```
 
 ## Docker Compose
@@ -24,7 +24,7 @@ docker run -d \
 ```yaml
 services:
   sub2api:
-    image: ghcr.io/xiangking/sub2api:latest
+    image: ghcr.io/xiangking/sub2api-kiro:latest
     ports:
       - "8080:8080"
       # Optional for local Kiro Social Auth auto-callback.
@@ -75,5 +75,5 @@ Kiro Social Auth uses `http://127.0.0.1:49153/oauth/callback`. For local Docker 
 
 ## Links
 
-- [GitHub Repository](https://github.com/xiangking/sub2api)
-- [Docker Compose Guide](https://github.com/xiangking/sub2api/blob/main/deploy/README.md)
+- [GitHub Repository](https://github.com/xiangking/sub2api-kiro)
+- [Docker Compose Guide](https://github.com/xiangking/sub2api-kiro/blob/main/deploy/README.md)

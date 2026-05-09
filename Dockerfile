@@ -86,8 +86,8 @@ FROM ${ALPINE_IMAGE}
 
 # Labels
 LABEL maintainer="xiangking <github.com/xiangking>"
-LABEL description="Sub2API Kiro Edition - AI API Gateway Platform"
-LABEL org.opencontainers.image.source="https://github.com/xiangking/sub2api"
+LABEL description="Sub2API Kiro - AI API Gateway Platform"
+LABEL org.opencontainers.image.source="https://github.com/xiangking/sub2api-kiro"
 
 # Install runtime dependencies
 RUN apk add --no-cache \

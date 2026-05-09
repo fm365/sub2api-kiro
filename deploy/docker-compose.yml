@@ -16,7 +16,7 @@ services:
   # Sub2API Application
   # ===========================================================================
   sub2api:
-    image: ghcr.io/xiangking/sub2api:latest
+    image: ghcr.io/xiangking/sub2api-kiro:latest
     container_name: sub2api
     restart: unless-stopped
     ulimits:

@@ -1,4 +1,4 @@
-# Maintaining Sub2API Kiro Edition
+# Maintaining Sub2API Kiro
 
 This repository is maintained as an independent product fork of `Wei-Shaw/sub2api`.
 
@@ -51,13 +51,13 @@ Avoid blind upstream merges when they introduce broad product changes or conflic
 Default public image:
 
 ```bash
-ghcr.io/xiangking/sub2api:latest
+ghcr.io/xiangking/sub2api-kiro:latest
 ```
 
 Use versioned tags for production:
 
 ```bash
-ghcr.io/xiangking/sub2api:vX.Y.Z
+ghcr.io/xiangking/sub2api-kiro:vX.Y.Z
 ```
 
 For local testing:
