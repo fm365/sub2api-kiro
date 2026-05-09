@@ -1701,7 +1701,7 @@ const importToCcswitch = (row: ApiKey) => {
 }
 
 const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
-  const baseUrl = publicSettings.value?.api_base_url || window.location.origin
+  const baseUrl = (publicSettings.value?.api_base_url || window.location.origin).replace(/\/+$/, '')
   const platform = row.group?.platform || 'anthropic'
 
   // Determine app name and endpoint based on platform and client type
@@ -1716,7 +1716,7 @@ const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
     switch (platform) {
       case 'openai':
         app = 'codex'
-        endpoint = baseUrl
+        endpoint = `${baseUrl}/v1`
         break
       case 'gemini':
         app = 'gemini'
@@ -1755,6 +1755,7 @@ const executeCcsImport = (row: ApiKey, clientType: 'claude' | 'gemini') => {
     apiKey: row.key,
     configFormat: 'json',
     usageEnabled: 'true',
+    usageBaseUrl: baseUrl,
     usageScript: btoa(usageScript),
     usageAutoInterval: '30'
   })

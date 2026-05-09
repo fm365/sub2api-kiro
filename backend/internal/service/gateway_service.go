@@ -27,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -3716,6 +3717,15 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		}
 		return mapAntigravityModel(account, requestedModel) != ""
 	}
+	if account.Platform == PlatformKiro {
+		if strings.TrimSpace(requestedModel) == "" {
+			return true
+		}
+		if account.IsModelSupported(requestedModel) {
+			return true
+		}
+		return kiro.IsKnownModel(requestedModel)
+	}
 	if account.IsBedrock() {
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok
@@ -4317,6 +4327,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	startTime := time.Now()
 	if parsed == nil {
 		return nil, fmt.Errorf("parse request: empty request")
+	}
+
+	if account != nil && account.Platform == PlatformKiro {
+		return s.forwardKiro(ctx, c, account, parsed, startTime)
 	}
 
 	// Web Search 模拟：纯 web_search 请求时，直接调用搜索 API 构造响应

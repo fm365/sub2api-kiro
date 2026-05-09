@@ -20,6 +20,7 @@ import (
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -946,8 +947,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
-	// Get available models from account configurations (without platform filter)
-	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, "")
+	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 
 	if len(availableModels) > 0 {
 		// Build model list from whitelist
@@ -972,6 +972,22 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"object": "list",
 			"data":   openai.DefaultModels,
+		})
+		return
+	}
+	if platform == service.PlatformKiro {
+		models := make([]claude.Model, 0, len(kiro.Models))
+		for _, modelID := range kiro.Models {
+			models = append(models, claude.Model{
+				ID:          modelID,
+				Type:        "model",
+				DisplayName: modelID,
+				CreatedAt:   "2024-01-01T00:00:00Z",
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"object": "list",
+			"data":   models,
 		})
 		return
 	}

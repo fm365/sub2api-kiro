@@ -25,6 +25,9 @@ services:
         hard: 100000
     ports:
       - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080"
+      # Optional for Kiro Social Auth auto-callback (GitHub/Google/Cognito).
+      # Kiro requires the browser callback URL below; keep manual paste fallback if you do not expose it.
+      # - "${KIRO_SOCIAL_CALLBACK_BIND_HOST:-127.0.0.1}:49153:49153"
     volumes:
       # Data persistence (config.yaml will be auto-generated here)
       - sub2api_data:/app/data
@@ -123,6 +126,9 @@ services:
       # SECURITY: This repo does not embed third-party client_secret.
       - GEMINI_CLI_OAUTH_CLIENT_SECRET=${GEMINI_CLI_OAUTH_CLIENT_SECRET:-}
       - ANTIGRAVITY_OAUTH_CLIENT_SECRET=${ANTIGRAVITY_OAUTH_CLIENT_SECRET:-}
+      # Kiro Social Auth auto-callback inside Docker.
+      # Set to 0.0.0.0 only when publishing port 49153 above; otherwise manual callback paste still works.
+      - KIRO_SOCIAL_CALLBACK_LISTEN_HOST=${KIRO_SOCIAL_CALLBACK_LISTEN_HOST:-}
 
       # =======================================================================
       # Security Configuration (URL Allowlist)

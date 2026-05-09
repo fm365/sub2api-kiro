@@ -14,6 +14,7 @@ import (
 	"time"
 
 	httppool "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 	openaipkg "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -103,6 +104,12 @@ type antigravityUsageCache struct {
 	timestamp time.Time
 }
 
+// kiroUsageCache 缓存 Kiro getUsageLimits 返回的真实额度数据
+type kiroUsageCache struct {
+	usageInfo *UsageInfo
+	timestamp time.Time
+}
+
 const (
 	apiCacheTTL             = 3 * time.Minute
 	apiErrorCacheTTL        = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
@@ -118,8 +125,10 @@ type UsageCache struct {
 	apiCache          sync.Map           // accountID -> *apiUsageCache
 	windowStatsCache  sync.Map           // accountID -> *windowStatsCache
 	antigravityCache  sync.Map           // accountID -> *antigravityUsageCache
+	kiroCache         sync.Map           // accountID -> *kiroUsageCache
 	apiFlight         singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
+	kiroFlight        singleflight.Group // 防止同一 Kiro 账号的并发请求击穿缓存
 	openAIProbeCache  sync.Map           // accountID -> time.Time
 }
 
@@ -176,6 +185,15 @@ type AICredit struct {
 	MinimumBalance float64 `json:"minimum_balance,omitempty"`
 }
 
+// KiroUsageInfo 表示 Kiro getUsageLimits 返回的账号额度信息。
+type KiroUsageInfo struct {
+	DaysUntilReset int                       `json:"days_until_reset"`
+	NextDateReset  *time.Time                `json:"next_date_reset,omitempty"`
+	Subscription   *kiro.UsageSubscription   `json:"subscription,omitempty"`
+	User           *kiro.UsageUser           `json:"user,omitempty"`
+	Breakdown      []kiro.UsageBreakdownItem `json:"usage_breakdown,omitempty"`
+}
+
 // UsageInfo 账号使用量信息
 type UsageInfo struct {
 	Source             string         `json:"source,omitempty"`               // "passive" or "active"
@@ -202,6 +220,9 @@ type UsageInfo struct {
 
 	// Antigravity AI Credits 余额
 	AICredits []AICredit `json:"ai_credits,omitempty"`
+
+	// Kiro 真实额度信息（来自 getUsageLimits / AGENTIC_REQUEST）
+	KiroUsage *KiroUsageInfo `json:"kiro_usage,omitempty"`
 
 	// Antigravity 废弃模型转发规则 (old_model_id -> new_model_id)
 	ModelForwardingRules map[string]string `json:"model_forwarding_rules,omitempty"`
@@ -326,6 +347,14 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64) (*U
 		return usage, err
 	}
 
+	if account.Platform == PlatformKiro {
+		usage, err := s.getKiroUsage(ctx, account)
+		if err == nil {
+			s.tryClearRecoverableAccountError(ctx, account)
+		}
+		return usage, err
+	}
+
 	// 只有oauth类型账号可以通过API获取usage（有profile scope）
 	if account.CanGetUsage() {
 		var apiResp *ClaudeUsageResponse
@@ -415,6 +444,95 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64) (*U
 
 	// API Key账号不支持usage查询
 	return nil, fmt.Errorf("account type %s does not support usage query", account.Type)
+}
+
+func (s *AccountUsageService) getKiroUsage(ctx context.Context, account *Account) (*UsageInfo, error) {
+	if cached, ok := s.cache.kiroCache.Load(account.ID); ok {
+		if cache, ok := cached.(*kiroUsageCache); ok {
+			if time.Since(cache.timestamp) < kiroCacheTTL(cache.usageInfo) {
+				return cache.usageInfo, nil
+			}
+		}
+	}
+
+	flightKey := fmt.Sprintf("kiro-usage:%d", account.ID)
+	result, flightErr, _ := s.cache.kiroFlight.Do(flightKey, func() (any, error) {
+		if cached, ok := s.cache.kiroCache.Load(account.ID); ok {
+			if cache, ok := cached.(*kiroUsageCache); ok {
+				if time.Since(cache.timestamp) < kiroCacheTTL(cache.usageInfo) {
+					return cache.usageInfo, nil
+				}
+			}
+		}
+
+		fetchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		client := kiro.NewClient(kiroCredentialsFromAccount(account), nil)
+		limits, refresh, err := client.GetUsageLimits(fetchCtx)
+		if refresh.Refreshed {
+			persistKiroCredentials(fetchCtx, s.accountRepo, account, refresh.Credentials)
+		}
+		if err != nil {
+			degraded := buildKiroDegradedUsage(err)
+			s.cache.kiroCache.Store(account.ID, &kiroUsageCache{usageInfo: degraded, timestamp: time.Now()})
+			return degraded, nil
+		}
+
+		now := time.Now()
+		usage := &UsageInfo{
+			Source:    "active",
+			UpdatedAt: &now,
+			KiroUsage: &KiroUsageInfo{
+				DaysUntilReset: limits.DaysUntilReset,
+				NextDateReset:  limits.NextDateReset,
+				Subscription:   limits.Subscription,
+				User:           limits.User,
+				Breakdown:      limits.Breakdown,
+			},
+		}
+		s.cache.kiroCache.Store(account.ID, &kiroUsageCache{usageInfo: usage, timestamp: time.Now()})
+		return usage, nil
+	})
+	if flightErr != nil {
+		return nil, flightErr
+	}
+	usage, ok := result.(*UsageInfo)
+	if !ok || usage == nil {
+		now := time.Now()
+		return &UsageInfo{UpdatedAt: &now}, nil
+	}
+	return usage, nil
+}
+
+func kiroCacheTTL(info *UsageInfo) time.Duration {
+	if info == nil || info.ErrorCode != "" || info.Error != "" {
+		return apiErrorCacheTTL
+	}
+	return apiCacheTTL
+}
+
+func buildKiroDegradedUsage(err error) *UsageInfo {
+	now := time.Now()
+	info := &UsageInfo{
+		UpdatedAt: &now,
+		Error:     fmt.Sprintf("usage API error: %v", err),
+	}
+	errStr := err.Error()
+	switch {
+	case strings.Contains(errStr, "status=401"):
+		info.ErrorCode = errorCodeUnauthenticated
+		info.NeedsReauth = true
+	case strings.Contains(errStr, "status=403"):
+		info.ErrorCode = errorCodeForbidden
+		info.IsForbidden = true
+		info.ForbiddenReason = errStr
+	case strings.Contains(errStr, "status=429"):
+		info.ErrorCode = errorCodeRateLimited
+	default:
+		info.ErrorCode = errorCodeNetworkError
+	}
+	return info
 }
 
 // GetPassiveUsage 从 Account.Extra 中的被动采样数据构建 UsageInfo，不调用外部 API。

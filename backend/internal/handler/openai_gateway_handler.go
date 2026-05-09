@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -22,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
 
@@ -182,11 +185,16 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id must be a response.id (resp_*), not a message id")
 			return
 		}
-		reqLog.Warn("openai.request_validation_failed",
-			zap.String("reason", "previous_response_id_requires_wsv2"),
+		// [PATCH] Instead of rejecting, strip previous_response_id from body and continue.
+		// This allows HTTP clients (like Codex Desktop with custom provider) to work
+		// without WebSocket v2 support. The conversation context is still maintained
+		// via the full input array sent by the client.
+		reqLog.Warn("openai.previous_response_id_stripped",
+			zap.String("reason", "http_mode_no_wsv2_stripping_previous_response_id"),
 		)
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id is only supported on Responses WebSocket v2")
-		return
+		body = stripJSONField(body, "previous_response_id")
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		c.Request.ContentLength = int64(len(body))
 	}
 
 	setOpsRequestContext(c, reqModel, reqStream, body)
@@ -1797,4 +1805,17 @@ func summarizeWSCloseErrorForLog(err error) (string, string) {
 		}
 	}
 	return closeStatus, closeReason
+}
+
+// stripJSONField removes a top-level JSON field from a byte slice body.
+// Uses tidwall/sjson for safe JSON manipulation.
+func stripJSONField(body []byte, field string) []byte {
+	if !gjson.GetBytes(body, field).Exists() {
+		return body
+	}
+	result, err := sjson.DeleteBytes(body, field)
+	if err != nil {
+		return body
+	}
+	return result
 }

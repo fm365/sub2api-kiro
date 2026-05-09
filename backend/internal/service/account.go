@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 )
 
 type Account struct {
@@ -482,6 +483,9 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		if a.Platform == domain.PlatformAntigravity {
 			return domain.DefaultAntigravityModelMapping
 		}
+		if a.Platform == domain.PlatformKiro {
+			return copyKiroModelMapping()
+		}
 		// Bedrock 默认映射由 forwardBedrock 统一处理（需配合 region prefix 调整）
 		return nil
 	}
@@ -489,6 +493,9 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
 			return domain.DefaultAntigravityModelMapping
+		}
+		if a.Platform == domain.PlatformKiro {
+			return copyKiroModelMapping()
 		}
 		return nil
 	}
@@ -507,6 +514,9 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 				"gemini-3.1-pro-low",
 			})
 		}
+		if a.Platform == domain.PlatformKiro {
+			ensureKiroDefaultMappings(result)
+		}
 		return result
 	}
 
@@ -514,7 +524,42 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	if a.Platform == domain.PlatformAntigravity {
 		return domain.DefaultAntigravityModelMapping
 	}
+	if a.Platform == domain.PlatformKiro {
+		return copyKiroModelMapping()
+	}
 	return nil
+}
+
+func copyKiroModelMapping() map[string]string {
+	result := make(map[string]string, len(kiro.ModelMapping))
+	for k, v := range kiro.ModelMapping {
+		result[k] = v
+	}
+	return result
+}
+
+func ensureKiroDefaultMappings(mapping map[string]string) {
+	if mapping == nil {
+		return
+	}
+	for model, mapped := range kiro.ModelMapping {
+		if _, exists := mapping[model]; exists {
+			continue
+		}
+		if mappingHasWildcardFor(mapping, model) {
+			continue
+		}
+		mapping[model] = mapped
+	}
+}
+
+func mappingHasWildcardFor(mapping map[string]string, model string) bool {
+	for pattern := range mapping {
+		if strings.Contains(pattern, "*") && matchWildcard(pattern, model) {
+			return true
+		}
+	}
+	return false
 }
 
 func mapPtr(m map[string]any) uintptr {

@@ -8,6 +8,8 @@ Sub2API is an AI API Gateway Platform for distributing and managing AI product s
 docker run -d \
   --name sub2api \
   -p 8080:8080 \
+  -p 127.0.0.1:49153:49153 \
+  -e KIRO_SOCIAL_CALLBACK_LISTEN_HOST=0.0.0.0 \
   -e DATABASE_URL="postgres://user:pass@host:5432/sub2api" \
   -e REDIS_URL="redis://host:6379" \
   weishaw/sub2api:latest
@@ -23,9 +25,12 @@ services:
     image: weishaw/sub2api:latest
     ports:
       - "8080:8080"
+      # Optional for Kiro Social Auth auto-callback.
+      - "127.0.0.1:49153:49153"
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/sub2api?sslmode=disable
       - REDIS_URL=redis://redis:6379
+      - KIRO_SOCIAL_CALLBACK_LISTEN_HOST=0.0.0.0
     depends_on:
       - db
       - redis
@@ -57,6 +62,11 @@ volumes:
 | `REDIS_URL` | Redis connection string | Yes | - |
 | `PORT` | Server port | No | `8080` |
 | `GIN_MODE` | Gin framework mode (`debug`/`release`) | No | `release` |
+| `KIRO_SOCIAL_CALLBACK_LISTEN_HOST` | Bind host for Kiro Social Auth callback listener. Use `0.0.0.0` only when publishing port `49153`; manual callback paste works without it. | No | `127.0.0.1` callback only |
+
+## Kiro Social Auth
+
+Kiro Social Auth (Google/GitHub/Cognito) uses the callback URL `http://127.0.0.1:49153/oauth/callback`. For local Docker deployments, publish port `49153` to the host and set `KIRO_SOCIAL_CALLBACK_LISTEN_HOST=0.0.0.0` to let Sub2API auto-capture the callback. On remote servers, prefer device authorization, or paste the final callback URL/code back into the UI if the browser cannot reach the container callback port.
 
 ## Supported Architectures
 

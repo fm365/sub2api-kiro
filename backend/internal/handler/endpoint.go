@@ -36,6 +36,7 @@ const (
 // prefixes like /antigravity, /openai) to its canonical form.
 //
 //	"/antigravity/v1/messages"   → "/v1/messages"
+//	"/kiro/v1/messages"          → "/v1/messages"
 //	"/v1/chat/completions"       → "/v1/chat/completions"
 //	"/openai/v1/responses/foo"   → "/v1/responses"
 //	"/v1beta/models/gemini:gen"  → "/v1beta/models"
@@ -86,6 +87,9 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 		return EndpointResponses
 
 	case service.PlatformAnthropic:
+		return EndpointMessages
+
+	case service.PlatformKiro:
 		return EndpointMessages
 
 	case service.PlatformGemini:

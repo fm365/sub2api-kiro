@@ -457,6 +457,44 @@ func TestAccountGetModelMapping_AntigravityRespectsWildcardOverride(t *testing.T
 	}
 }
 
+func TestAccountGetModelMapping_KiroBackfillsNewDefaultMappings(t *testing.T) {
+	account := &Account{
+		Platform: PlatformKiro,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"claude-sonnet-4-5": "CLAUDE_SONNET_4_5_20250929_V1_0",
+			},
+		},
+	}
+
+	mapping := account.GetModelMapping()
+	if mapping["claude-opus-4-6"] != "claude-opus-4.6" {
+		t.Fatalf("expected claude-opus-4-6 default mapping, got %q", mapping["claude-opus-4-6"])
+	}
+	if mapping["claude-sonnet-4-6"] != "claude-sonnet-4.6" {
+		t.Fatalf("expected claude-sonnet-4-6 default mapping, got %q", mapping["claude-sonnet-4-6"])
+	}
+}
+
+func TestAccountGetModelMapping_KiroRespectsWildcardOverride(t *testing.T) {
+	account := &Account{
+		Platform: PlatformKiro,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"claude-opus-4-*": "claude-opus-4.7",
+			},
+		},
+	}
+
+	mapping := account.GetModelMapping()
+	if _, exists := mapping["claude-opus-4-6"]; exists {
+		t.Fatalf("did not expect explicit claude-opus-4-6 mapping when wildcard already exists")
+	}
+	if mapped := account.GetMappedModel("claude-opus-4-6"); mapped != "claude-opus-4.7" {
+		t.Fatalf("expected wildcard to map claude-opus-4-6, got %q", mapped)
+	}
+}
+
 func TestAccountGetModelMapping_CacheInvalidatesOnCredentialsReplace(t *testing.T) {
 	account := &Account{
 		Credentials: map[string]any{

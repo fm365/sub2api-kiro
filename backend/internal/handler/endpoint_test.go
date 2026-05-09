@@ -31,6 +31,7 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 
 		// Prefixed paths (antigravity, openai).
 		{"/antigravity/v1/messages", EndpointMessages},
+		{"/kiro/v1/messages", EndpointMessages},
 		{"/openai/v1/responses", EndpointResponses},
 		{"/openai/v1/responses/compact", EndpointResponses},
 		{"/openai/v1/images/generations", EndpointImagesGenerations},
@@ -83,6 +84,7 @@ func TestDeriveUpstreamEndpoint(t *testing.T) {
 		// Antigravity — uses inbound to pick Claude vs Gemini upstream.
 		{"antigravity claude", EndpointMessages, "/antigravity/v1/messages", service.PlatformAntigravity, EndpointMessages},
 		{"antigravity gemini", EndpointGeminiModels, "/antigravity/v1beta/models", service.PlatformAntigravity, EndpointGeminiModels},
+		{"kiro claude", EndpointMessages, "/kiro/v1/messages", service.PlatformKiro, EndpointMessages},
 
 		// Unknown platform — passthrough.
 		{"unknown platform", "/v1/embeddings", "/v1/embeddings", "unknown", "/v1/embeddings"},

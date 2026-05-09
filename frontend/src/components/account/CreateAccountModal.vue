@@ -70,7 +70,7 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+        <div class="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 md:grid-cols-5 dark:bg-dark-700" data-tour="account-form-platform">
           <button
             type="button"
             @click="form.platform = 'anthropic'"
@@ -146,6 +146,19 @@
           >
             <Icon name="cloud" size="sm" />
             Antigravity
+          </button>
+          <button
+            type="button"
+            @click="form.platform = 'kiro'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'kiro'
+                ? 'bg-white text-teal-600 shadow-sm dark:bg-dark-600 dark:text-teal-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <Icon name="terminal" size="sm" />
+            Kiro
           </button>
         </div>
       </div>
@@ -719,7 +732,7 @@
       <!-- Account Type Selection (Antigravity - OAuth or Upstream) -->
       <div v-if="form.platform === 'antigravity'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <button
             type="button"
             @click="antigravityAccountType = 'oauth'"
@@ -771,6 +784,334 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.antigravityApikey') }}</span>
             </div>
           </button>
+        </div>
+      </div>
+
+      <!-- Account Type Selection (Kiro) -->
+      <div v-if="form.platform === 'kiro'">
+        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            @click="kiroAddMode = 'device'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              kiroAddMode === 'device'
+                ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                : 'border-gray-200 hover:border-teal-300 dark:border-dark-600 dark:hover:border-teal-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                kiroAddMode === 'device' ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="terminal" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.kiro.deviceAuthTitle') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.kiro.deviceAuthDesc') }}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            @click="kiroAddMode = 'social'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              kiroAddMode === 'social'
+                ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                : 'border-gray-200 hover:border-teal-300 dark:border-dark-600 dark:hover:border-teal-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                kiroAddMode === 'social' ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="globe" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.kiro.socialAuthTitle') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.kiro.socialAuthDesc') }}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            @click="kiroAddMode = 'scan'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              kiroAddMode === 'scan'
+                ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                : 'border-gray-200 hover:border-teal-300 dark:border-dark-600 dark:hover:border-teal-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                kiroAddMode === 'scan' ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="search" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.kiro.scanTitle') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.kiro.scanDesc') }}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            @click="kiroAddMode = 'manual'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              kiroAddMode === 'manual'
+                ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                : 'border-gray-200 hover:border-teal-300 dark:border-dark-600 dark:hover:border-teal-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                kiroAddMode === 'manual' ? 'bg-teal-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">Kiro Token</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.types.kiroToken') }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <div v-if="form.platform === 'kiro' && kiroAddMode === 'device'" class="space-y-4">
+        <div class="rounded-lg bg-teal-50 p-3 text-xs text-teal-800 dark:bg-teal-900/20 dark:text-teal-200">
+          {{ t('admin.accounts.kiro.deviceAuthDockerHint') }}
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.kiro.authType') }}</label>
+            <select v-model="kiroDeviceAuthType" class="input">
+              <option value="builder-id">AWS Builder ID</option>
+              <option value="identity-center">IAM Identity Center</option>
+            </select>
+          </div>
+          <div>
+            <label class="input-label">Region</label>
+            <input v-model="kiroRegion" type="text" class="input" placeholder="us-east-1" />
+          </div>
+        </div>
+        <div v-if="kiroDeviceAuthType === 'identity-center'">
+          <label class="input-label">Start URL</label>
+          <input v-model="kiroStartUrl" type="text" class="input" placeholder="https://d-xxxxxxxxxx.awsapps.com/start" />
+        </div>
+
+        <div v-if="kiroOAuth.authUrl.value" class="rounded-lg border border-teal-200 bg-white p-3 dark:border-teal-800/50 dark:bg-dark-700">
+          <div class="flex flex-wrap items-center gap-3">
+            <a :href="kiroOAuth.authUrl.value" target="_blank" rel="noreferrer" class="btn btn-secondary">
+              {{ t('admin.accounts.kiro.openAuthUrl') }}
+            </a>
+            <span class="text-sm text-gray-600 dark:text-gray-300">
+              {{ t('admin.accounts.kiro.userCode') }}:
+              <span class="font-mono font-semibold text-gray-900 dark:text-white">{{ kiroOAuth.userCode.value }}</span>
+            </span>
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.kiro.pollingHint') }}
+          </p>
+        </div>
+
+        <div v-if="kiroOAuth.error.value" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">
+          {{ kiroOAuth.error.value }}
+        </div>
+
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="kiroOAuth.loading.value || kiroOAuth.polling.value"
+          @click="handleKiroStartDeviceAuth"
+        >
+          <svg
+            v-if="kiroOAuth.loading.value || kiroOAuth.polling.value"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          {{ kiroOAuth.polling.value ? t('admin.accounts.kiro.waitingForAuth') : t('admin.accounts.kiro.startDeviceAuth') }}
+        </button>
+      </div>
+
+      <div v-if="form.platform === 'kiro' && kiroAddMode === 'social'" class="space-y-4">
+        <div class="rounded-lg bg-teal-50 p-3 text-xs text-teal-800 dark:bg-teal-900/20 dark:text-teal-200">
+          {{ t('admin.accounts.kiro.socialDockerHint') }}
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.kiro.provider') }}</label>
+            <select v-model="kiroSocialProvider" class="input">
+              <option value="google">Google</option>
+              <option value="github">GitHub</option>
+              <option value="cognito">Cognito</option>
+            </select>
+          </div>
+          <div>
+            <label class="input-label">Region</label>
+            <input v-model="kiroRegion" type="text" class="input" placeholder="us-east-1" />
+          </div>
+        </div>
+        <div>
+          <label class="input-label">Redirect URI</label>
+          <input v-model="kiroRedirectUri" type="text" class="input font-mono" placeholder="http://127.0.0.1:49153/oauth/callback" />
+        </div>
+        <div v-if="kiroOAuth.authUrl.value" class="rounded-lg border border-teal-200 bg-white p-3 dark:border-teal-800/50 dark:bg-dark-700">
+          <a :href="kiroOAuth.authUrl.value" target="_blank" rel="noreferrer" class="btn btn-secondary">
+            {{ t('admin.accounts.kiro.openAuthUrl') }}
+          </a>
+          <div class="mt-3">
+            <label class="input-label">{{ t('admin.accounts.kiro.callbackOrCode') }}</label>
+            <textarea v-model="kiroCallbackOrCode" rows="3" class="input font-mono" :placeholder="t('admin.accounts.kiro.callbackOrCodePlaceholder')"></textarea>
+          </div>
+        </div>
+        <div v-if="kiroOAuth.error.value" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">
+          {{ kiroOAuth.error.value }}
+        </div>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="kiroOAuth.loading.value || kiroOAuth.polling.value"
+          @click="kiroOAuth.authUrl.value ? handleKiroCompleteSocialAuth() : handleKiroStartSocialAuth()"
+        >
+          {{ kiroOAuth.polling.value ? t('admin.accounts.kiro.waitingForAuth') : (kiroOAuth.authUrl.value ? t('admin.accounts.kiro.completeSocialAuth') : t('admin.accounts.kiro.startSocialAuth')) }}
+        </button>
+        <button
+          v-if="kiroOAuth.authUrl.value && kiroOAuth.polling.value"
+          type="button"
+          class="btn btn-secondary ml-2"
+          :disabled="kiroOAuth.loading.value"
+          @click="handleKiroCompleteSocialAuth"
+        >
+          {{ t('admin.accounts.kiro.completeSocialAuth') }}
+        </button>
+      </div>
+
+      <div v-if="form.platform === 'kiro' && kiroAddMode === 'scan'" class="space-y-4">
+        <div class="rounded-lg bg-teal-50 p-3 text-xs text-teal-800 dark:bg-teal-900/20 dark:text-teal-200">
+          {{ t('admin.accounts.kiro.scanDockerHint') }}
+        </div>
+        <button type="button" class="btn btn-primary" :disabled="kiroOAuth.loading.value" @click="handleKiroScanTokens">
+          {{ t('admin.accounts.kiro.scanTokens') }}
+        </button>
+        <div v-if="kiroOAuth.detectedTokens.value.length > 0" class="space-y-2">
+          <button
+            v-for="token in kiroOAuth.detectedTokens.value"
+            :key="token.file_path"
+            type="button"
+            class="w-full rounded-lg border border-gray-200 p-3 text-left transition-colors hover:border-teal-400 dark:border-dark-600 dark:hover:border-teal-700"
+            @click="handleKiroCreateFromScannedToken(token.credentials)"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-sm font-medium text-gray-900 dark:text-white">{{ token.source }} - {{ token.file_name }}</span>
+              <span :class="token.is_usable ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'" class="text-xs">
+                {{ token.is_usable ? t('common.available') : t('admin.accounts.kiro.needsRefreshInfo') }}
+              </span>
+            </div>
+            <div class="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{{ token.file_path }}</div>
+          </button>
+        </div>
+        <div v-if="kiroOAuth.scanErrors.value.length > 0" class="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+          {{ kiroOAuth.scanErrors.value[0] }}
+        </div>
+      </div>
+
+      <div v-if="form.platform === 'kiro' && kiroAddMode === 'manual'" class="space-y-4">
+        <div>
+          <label class="input-label">Access Token</label>
+          <input v-model="kiroAccessToken" type="password" class="input font-mono" autocomplete="new-password" />
+        </div>
+        <div>
+          <label class="input-label">Refresh Token</label>
+          <input v-model="kiroRefreshToken" type="password" class="input font-mono" autocomplete="new-password" />
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="input-label">Region</label>
+            <input v-model="kiroRegion" type="text" class="input" placeholder="us-east-1" />
+          </div>
+          <div>
+            <label class="input-label">Auth Method</label>
+            <select v-model="kiroAuthMethod" class="input">
+              <option value="social">social</option>
+              <option value="oidc">oidc</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="input-label">Profile ARN</label>
+          <input v-model="kiroProfileArn" type="text" class="input font-mono" />
+        </div>
+        <div v-if="kiroAuthMethod !== 'social'" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="input-label">Client ID</label>
+            <input v-model="kiroClientId" type="text" class="input font-mono" />
+          </div>
+          <div>
+            <label class="input-label">Client Secret</label>
+            <input v-model="kiroClientSecret" type="password" class="input font-mono" autocomplete="new-password" />
+          </div>
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
+          <div class="mb-3 rounded-lg bg-teal-50 p-3 dark:bg-teal-900/20">
+            <p class="text-xs text-teal-700 dark:text-teal-400">
+              {{ t('admin.accounts.mapRequestModels') }}
+            </p>
+          </div>
+          <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
+            <div
+              v-for="(mapping, index) in modelMappings"
+              :key="getModelMappingKey(mapping)"
+              class="flex items-center gap-2"
+            >
+              <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.requestModel')" />
+              <svg class="h-4 w-4 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+              <input v-model="mapping.to" type="text" class="input flex-1" :placeholder="t('admin.accounts.actualModel')" />
+              <button
+                type="button"
+                @click="removeModelMapping(index)"
+                class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+              >
+                <Icon name="trash" size="sm" />
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            @click="addModelMapping"
+            class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
+          >
+            + {{ t('admin.accounts.addMapping') }}
+          </button>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="preset in presetMappings"
+              :key="preset.label"
+              type="button"
+              @click="addPresetMapping(preset.from, preset.to)"
+              :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
+            >
+              + {{ preset.label }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1009,7 +1350,7 @@
       </div>
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'kiro'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -2737,7 +3078,6 @@
 
         <!-- Group Selection - 仅标准模式显示 -->
         <GroupSelector
-          v-if="!authStore.isSimpleMode"
           v-model="form.group_ids"
           :groups="groups"
           :platform="form.platform"
@@ -2812,7 +3152,9 @@
           </svg>
           {{
             isOAuthFlow
-              ? t('common.next')
+              ? form.platform === 'kiro'
+                ? t('common.create')
+                : t('common.next')
               : submitting
                 ? t('admin.accounts.creating')
                 : t('common.create')
@@ -3103,7 +3445,6 @@ import {
   fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
-import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
@@ -3114,6 +3455,7 @@ import {
 import { useOpenAIOAuth } from '@/composables/useOpenAIOAuth'
 import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
+import { useKiroOAuth, type KiroAuthType, type KiroSocialProvider } from '@/composables/useKiroOAuth'
 import type {
   Proxy,
   AdminGroup,
@@ -3161,12 +3503,12 @@ interface OAuthFlowExposed {
 }
 
 const { t } = useI18n()
-const authStore = useAuthStore()
 
 const oauthStepTitle = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
   if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
   if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
+  if (form.platform === 'kiro') return t('admin.accounts.oauth.kiro.title')
   return t('admin.accounts.oauth.title')
 })
 
@@ -3202,6 +3544,7 @@ const oauth = useAccountOAuth() // For Anthropic OAuth
 const openaiOAuth = useOpenAIOAuth() // For OpenAI OAuth
 const geminiOAuth = useGeminiOAuth() // For Gemini OAuth
 const antigravityOAuth = useAntigravityOAuth() // For Antigravity OAuth
+const kiroOAuth = useKiroOAuth() // For Kiro device auth
 
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
@@ -3308,6 +3651,19 @@ const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
 const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
 const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
+const kiroAccessToken = ref('')
+const kiroRefreshToken = ref('')
+const kiroRegion = ref('us-east-1')
+const kiroAuthMethod = ref<'social' | 'oidc'>('social')
+const kiroProfileArn = ref('')
+const kiroClientId = ref('')
+const kiroClientSecret = ref('')
+const kiroAddMode = ref<'device' | 'social' | 'scan' | 'manual'>('device')
+const kiroDeviceAuthType = ref<KiroAuthType>('builder-id')
+const kiroStartUrl = ref('')
+const kiroSocialProvider = ref<KiroSocialProvider>('google')
+const kiroRedirectUri = ref('http://127.0.0.1:49153/oauth/callback')
+const kiroCallbackOrCode = ref('')
 
 // Bedrock credentials
 const bedrockAuthMode = ref<'sigv4' | 'apikey'>('sigv4')
@@ -3584,7 +3940,7 @@ watch(
     if ((form.platform === 'gemini' || form.platform === 'anthropic') && category === 'service_account') {
       form.type = 'service_account' as AccountType
     } else if (category === 'oauth-based') {
-      form.type = method as AccountType // 'oauth' or 'setup-token'
+      form.type = form.platform === 'kiro' ? 'oauth' : method as AccountType // 'oauth' or 'setup-token'
     } else {
       form.type = 'apikey'
     }
@@ -3598,7 +3954,9 @@ watch(
   (newPlatform) => {
     // Reset base URL based on platform
     apiKeyBaseUrl.value =
-      (newPlatform === 'openai')
+      newPlatform === 'kiro'
+        ? ''
+        : (newPlatform === 'openai')
         ? 'https://api.openai.com'
         : newPlatform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
@@ -3615,6 +3973,13 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
+    } else if (newPlatform === 'kiro') {
+      accountCategory.value = 'oauth-based'
+      form.type = 'oauth'
+      kiroAddMode.value = 'device'
+      modelRestrictionMode.value = 'mapping'
+      allowedModels.value = []
+      modelMappings.value = [...getPresetMappingsByPlatform('kiro').map(({ from, to }) => ({ from, to }))]
     } else {
       allowOverages.value = false
       antigravityWhitelistModels.value = []
@@ -3659,6 +4024,7 @@ watch(
 
     geminiOAuth.resetState()
     antigravityOAuth.resetState()
+    kiroOAuth.resetState()
   }
 )
 
@@ -3889,6 +4255,79 @@ const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
   return true
 }
 
+const buildKiroModelMapping = () => buildModelMappingObject('mapping', [], modelMappings.value)
+
+const createKiroAccountFromCredentials = async (credentials: Record<string, unknown>) => {
+  const modelMapping = buildKiroModelMapping()
+  if (modelMapping) {
+    credentials.model_mapping = modelMapping
+  }
+  applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
+  await createAccountAndFinish('kiro', 'oauth', credentials)
+}
+
+const handleKiroStartDeviceAuth = async () => {
+  if (!form.name.trim()) {
+    appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+    return
+  }
+  if (kiroDeviceAuthType.value === 'identity-center' && !kiroStartUrl.value.trim()) {
+    appStore.showError(t('admin.accounts.kiro.pleaseEnterStartUrl'))
+    return
+  }
+  await kiroOAuth.startDeviceAuth({
+    authType: kiroDeviceAuthType.value,
+    region: kiroRegion.value.trim() || 'us-east-1',
+    startUrl: kiroStartUrl.value,
+    proxyId: form.proxy_id,
+    onComplete: async (credentials) => {
+      await createKiroAccountFromCredentials({ ...credentials })
+    }
+  })
+}
+
+const handleKiroStartSocialAuth = async () => {
+  if (!form.name.trim()) {
+    appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+    return
+  }
+  if (!kiroRedirectUri.value.trim()) {
+    appStore.showError(t('admin.accounts.kiro.pleaseEnterRedirectUri'))
+    return
+  }
+  await kiroOAuth.startSocialAuth({
+    provider: kiroSocialProvider.value,
+    region: kiroRegion.value.trim() || 'us-east-1',
+    redirectUri: kiroRedirectUri.value.trim(),
+    proxyId: form.proxy_id,
+    onComplete: async (credentials) => {
+      await createKiroAccountFromCredentials({ ...credentials })
+    }
+  })
+}
+
+const handleKiroCompleteSocialAuth = async () => {
+  if (!kiroCallbackOrCode.value.trim()) {
+    appStore.showError(t('admin.accounts.kiro.pleaseEnterCallbackOrCode'))
+    return
+  }
+  await kiroOAuth.completeSocialAuth(kiroCallbackOrCode.value.trim(), async (credentials) => {
+    await createKiroAccountFromCredentials({ ...credentials })
+  })
+}
+
+const handleKiroScanTokens = async () => {
+  await kiroOAuth.scanTokens()
+}
+
+const handleKiroCreateFromScannedToken = async (credentials: Record<string, unknown>) => {
+  if (!form.name.trim()) {
+    appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+    return
+  }
+  await createKiroAccountFromCredentials({ ...credentials })
+}
+
 const splitTempUnschedKeywords = (value: string) => {
   return value
     .split(/[,;]/)
@@ -4074,6 +4513,19 @@ const resetForm = () => {
   vertexProjectId.value = ''
   vertexClientEmail.value = ''
   vertexLocation.value = 'global'
+  kiroAccessToken.value = ''
+  kiroRefreshToken.value = ''
+  kiroRegion.value = 'us-east-1'
+  kiroAuthMethod.value = 'social'
+  kiroProfileArn.value = ''
+  kiroClientId.value = ''
+  kiroClientSecret.value = ''
+  kiroAddMode.value = 'device'
+  kiroDeviceAuthType.value = 'builder-id'
+  kiroStartUrl.value = ''
+  kiroSocialProvider.value = 'google'
+  kiroRedirectUri.value = 'http://127.0.0.1:49153/oauth/callback'
+  kiroCallbackOrCode.value = ''
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -4084,6 +4536,7 @@ const resetForm = () => {
   openaiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
+  kiroOAuth.resetState()
   oauthFlowRef.value?.reset()
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
@@ -4091,6 +4544,7 @@ const resetForm = () => {
 
 const handleClose = () => {
   antigravityMixedChannelConfirmed.value = false
+  kiroOAuth.stopPolling()
   clearMixedChannelDialog()
   emit('close')
 }
@@ -4244,6 +4698,53 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (form.platform === 'kiro' && kiroAddMode.value === 'device') {
+    await handleKiroStartDeviceAuth()
+    return
+  }
+
+  if (form.platform === 'kiro' && kiroAddMode.value === 'social') {
+    if (kiroOAuth.authUrl.value) {
+      await handleKiroCompleteSocialAuth()
+    } else {
+      await handleKiroStartSocialAuth()
+    }
+    return
+  }
+
+  if (form.platform === 'kiro' && kiroAddMode.value === 'scan') {
+    await handleKiroScanTokens()
+    return
+  }
+
+  if (form.platform === 'kiro' && kiroAddMode.value === 'manual') {
+    if (!form.name.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+      return
+    }
+    if (!kiroAccessToken.value.trim() && !kiroRefreshToken.value.trim()) {
+      appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
+      return
+    }
+    if (kiroAuthMethod.value !== 'social' && (!kiroClientId.value.trim() || !kiroClientSecret.value.trim())) {
+      appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
+      return
+    }
+
+    const credentials: Record<string, unknown> = {
+      auth_method: kiroAuthMethod.value,
+      region: kiroRegion.value.trim() || 'us-east-1'
+    }
+    if (kiroAccessToken.value.trim()) credentials.access_token = kiroAccessToken.value.trim()
+    if (kiroRefreshToken.value.trim()) credentials.refresh_token = kiroRefreshToken.value.trim()
+    if (kiroProfileArn.value.trim()) credentials.profile_arn = kiroProfileArn.value.trim()
+    if (kiroClientId.value.trim()) credentials.client_id = kiroClientId.value.trim()
+    if (kiroClientSecret.value.trim()) credentials.client_secret = kiroClientSecret.value.trim()
+
+    await createKiroAccountFromCredentials(credentials)
+    return
+  }
+
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!form.name.trim()) {

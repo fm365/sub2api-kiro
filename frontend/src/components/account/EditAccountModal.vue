@@ -69,8 +69,8 @@
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
 
-        <!-- Model Restriction Section (不适用于 Antigravity) -->
-        <div v-if="account.platform !== 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <!-- Model Restriction Section (不适用于 Antigravity/Kiro 专用映射面板) -->
+        <div v-if="account.platform !== 'antigravity' && account.platform !== 'kiro'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
           <div
@@ -976,15 +976,30 @@
         </div>
       </div>
 
-      <!-- Antigravity model restriction (applies to all antigravity types) -->
-      <!-- Antigravity 只支持模型映射模式，不支持白名单模式 -->
-      <div v-if="account.platform === 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+      <!-- Antigravity/Kiro model restriction (mapping mode only) -->
+      <div v-if="account.platform === 'antigravity' || account.platform === 'kiro'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
         <!-- Mapping Mode Only (no toggle for Antigravity) -->
         <div>
-          <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-            <p class="text-xs text-purple-700 dark:text-purple-400">{{ t('admin.accounts.mapRequestModels') }}</p>
+          <div
+            :class="[
+              'mb-3 rounded-lg p-3',
+              account.platform === 'kiro'
+                ? 'bg-teal-50 dark:bg-teal-900/20'
+                : 'bg-purple-50 dark:bg-purple-900/20'
+            ]"
+          >
+            <p
+              :class="[
+                'text-xs',
+                account.platform === 'kiro'
+                  ? 'text-teal-700 dark:text-teal-400'
+                  : 'text-purple-700 dark:text-purple-400'
+              ]"
+            >
+              {{ t('admin.accounts.mapRequestModels') }}
+            </p>
           </div>
 
           <div v-if="antigravityModelMappings.length > 0" class="mb-3 space-y-2">
@@ -1214,9 +1229,9 @@
         </div>
       </div>
 
-      <!-- Intercept Warmup Requests (Anthropic/Antigravity) -->
+      <!-- Intercept Warmup Requests (Anthropic/Antigravity/Kiro) -->
       <div
-        v-if="account?.platform === 'anthropic' || account?.platform === 'antigravity'"
+        v-if="account?.platform === 'anthropic' || account?.platform === 'antigravity' || account?.platform === 'kiro'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2114,7 +2129,6 @@
 
       <!-- Group Selection - 仅标准模式显示 -->
       <GroupSelector
-        v-if="!authStore.isSimpleMode"
         v-model="form.group_ids"
         :groups="groups"
         :platform="account?.platform"
@@ -2179,7 +2193,6 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type { Account, Proxy, AdminGroup, CheckMixedChannelResponse, OpenAICompactMode } from '@/types'
@@ -2226,7 +2239,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const authStore = useAuthStore()
 
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
@@ -2665,10 +2677,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   }
 
   // Load antigravity model mapping (Antigravity 只支持映射模式)
-  if (newAccount.platform === 'antigravity') {
+  if (newAccount.platform === 'antigravity' || newAccount.platform === 'kiro') {
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
 
-    // Antigravity 始终使用映射模式
+    // Antigravity/Kiro 始终使用映射模式
     antigravityModelRestrictionMode.value = 'mapping'
     antigravityWhitelistModels.value = []
 
@@ -2709,6 +2721,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
+          : newAccount.platform === 'kiro'
+            ? ''
           : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
 
@@ -2832,6 +2846,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
+          : newAccount.platform === 'kiro'
+            ? ''
           : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
@@ -3548,9 +3564,8 @@ const handleSubmit = async () => {
       updatePayload.credentials = newCredentials
     }
 
-    // Antigravity: persist model mapping to credentials (applies to all antigravity types)
-    // Antigravity 只支持映射模式
-    if (props.account.platform === 'antigravity') {
+    // Antigravity/Kiro: persist model mapping to credentials (mapping mode only)
+    if (props.account.platform === 'antigravity' || props.account.platform === 'kiro') {
       const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||
         ((props.account.credentials as Record<string, unknown>) || {})
       const newCredentials: Record<string, unknown> = { ...currentCredentials }

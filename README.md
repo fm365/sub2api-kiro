@@ -606,6 +606,248 @@ sub2api/
     └── install.sh            # One-click installation script
 ```
 
+## Usage Examples
+
+### OpenAI-Compatible API
+
+Sub2API provides fully OpenAI-compatible API endpoints. You can use it as a drop-in replacement for OpenAI's Base URL.
+
+#### Chat Completions (Streaming)
+
+```bash
+curl -X POST http://your-server:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -d '{
+    "model": "claude-sonnet-4-20250514",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ],
+    "stream": true
+  }'
+```
+
+#### Chat Completions (Non-Streaming)
+
+```bash
+curl -X POST http://your-server:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Explain quantum computing basics"}
+    ]
+  }'
+```
+
+#### Claude Code Integration
+
+```bash
+export ANTHROPIC_BASE_URL="http://your-server:8080"
+export ANTHROPIC_AUTH_TOKEN="sk-your-api-key"
+
+claude "Write a Python quicksort"
+```
+
+#### Codex CLI Integration
+
+```bash
+export OPENAI_BASE_URL="http://your-server:8080/v1"
+export OPENAI_API_KEY="sk-your-api-key"
+
+codex "Explain what this code does"
+```
+
+#### Gemini API
+
+```bash
+curl -X POST http://your-server:8080/v1beta/models/gemini-2.5-flash:generateContent \
+  -H "Content-Type: application/json" \
+  -H "x-goog-api-key: sk-your-api-key" \
+  -d '{
+    "contents": [{
+      "parts": [{"text": "Hello, introduce yourself"}]
+    }]
+  }'
+```
+
+### Python SDK
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://your-server:8080/v1",
+    api_key="sk-your-api-key"
+)
+
+# Streaming
+stream = client.chat.completions.create(
+    model="claude-sonnet-4-20250514",
+    messages=[{"role": "user", "content": "Write an HTTP server in Python"}],
+    stream=True
+)
+
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+```
+
+### Node.js SDK
+
+```javascript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  baseURL: 'http://your-server:8080/v1',
+  apiKey: 'sk-your-api-key',
+});
+
+const response = await client.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'Write a poem about programming' }],
+});
+
+console.log(response.choices[0].message.content);
+```
+
+### API Key Management
+
+```bash
+# Get current user profile
+curl -H "Authorization: Bearer your-jwt-token" \
+  http://your-server:8080/api/v1/user/profile
+
+# Create API Key
+curl -X POST http://your-server:8080/api/v1/api-keys \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-jwt-token" \
+  -d '{"name": "my-app-key"}'
+
+# View usage stats
+curl -H "Authorization: Bearer your-jwt-token" \
+  http://your-server:8080/api/v1/usage
+```
+
+### Supported Models
+
+Sub2API supports multiple model families via upstream account mapping:
+
+| Platform | Example Models |
+|----------|---------------|
+| Anthropic | `claude-sonnet-4-20250514`, `claude-opus-4-20250514` |
+| OpenAI | `gpt-4o`, `gpt-4.1`, `o3`, `gpt-5.3-codex` |
+| Google | `gemini-2.5-pro`, `gemini-2.5-flash` |
+| Antigravity | Claude / Gemini via dedicated endpoints |
+
+> Available models depend on the upstream accounts and model mappings configured by the admin.
+
+---
+
+## Contributing
+
+We welcome contributions of all kinds!
+
+### How to Contribute
+
+1. **Fork** this repository
+2. **Clone** your fork locally
+3. Create a feature branch: `git checkout -b feature/your-feature`
+4. Make your changes
+5. Push to your fork: `git push origin feature/your-feature`
+6. Open a **Pull Request**
+
+### Sign the CLA
+
+Before submitting a PR, you must sign the [Contributor License Agreement (CLA)](CLA.md). Reply in your PR with:
+
+> I have read the CLA Document and I hereby sign the CLA
+
+### Development Setup
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/your-username/sub2api.git
+cd sub2api
+
+# 2. Start databases (Docker recommended)
+docker run -d --name pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
+docker run -d --name redis -p 6379:6379 redis:7
+
+# 3. Create database
+psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE sub2api;"
+
+# 4. Backend development
+cd backend
+cp ../deploy/config.example.yaml ./config.yaml  # edit config
+go run ./cmd/server
+
+# 5. Frontend development (new terminal)
+cd frontend
+pnpm install
+pnpm run dev
+```
+
+### Code Standards
+
+**Backend (Go)**
+- Use `golangci-lint` for code quality checks
+- Follow Go standard project layout
+- Run `go generate ./ent` after modifying `ent/schema`
+- All test stubs must implement new interface methods
+
+**Frontend (Vue/TypeScript)**
+- Use `pnpm` as package manager (not npm)
+- Use ESLint for code quality checks
+- Ensure `pnpm-lock.yaml` is committed alongside `package.json` changes
+
+### Commit Convention
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer]
+```
+
+| Type | Description |
+|------|-------------|
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `docs` | Documentation |
+| `style` | Code style (no logic change) |
+| `refactor` | Refactoring |
+| `test` | Tests |
+| `chore` | Build/tooling changes |
+
+### PR Checklist
+
+- [ ] Backend unit tests pass: `cd backend && go test -tags=unit ./...`
+- [ ] Backend integration tests pass: `cd backend && go test -tags=integration ./...`
+- [ ] Lint passes: `cd backend && golangci-lint run ./...`
+- [ ] Frontend checks pass: `cd frontend && pnpm run lint:check && pnpm run typecheck`
+- [ ] `pnpm-lock.yaml` is in sync (if `package.json` was changed)
+- [ ] Ent generated code committed (if `ent/schema` was changed)
+- [ ] All test stubs updated for new interface methods
+- [ ] CLA signed
+
+### Reporting Issues
+
+Found a bug or have a feature request? Use [GitHub Issues](https://github.com/Wei-Shaw/sub2api/issues) with:
+
+- Description of the issue
+- Steps to reproduce
+- Expected vs. actual behavior
+- Environment info (OS, Go version, Node version)
+- Relevant logs or screenshots
+
+---
+
 ## Disclaimer
 
 > **Please read carefully before using this project:**

@@ -2039,6 +2039,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        kiro: 'Kiro',
       },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",
@@ -2859,6 +2860,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        kiro: 'Kiro',
       },
       types: {
         oauth: 'OAuth',
@@ -2868,6 +2870,7 @@ export default {
         codeAssist: 'Code Assist',
         antigravityOauth: 'Antigravity OAuth',
         antigravityApikey: 'Connect via Base URL + API Key',
+        kiroToken: 'Import existing Kiro tokens for Claude Code style clients',
         upstream: 'Upstream',
         upstreamDesc: 'Connect via Base URL + API Key'
       },
@@ -3579,8 +3582,47 @@ export default {
                     validateAndCreate: 'Validate & Create',
                     pleaseEnterRefreshToken: 'Please enter Refresh Token',
                     failedToValidateRT: 'Failed to validate Refresh Token'
+                  },
+                  kiro: {
+                    title: 'Kiro Account Authorization',
+                    failedToStartDeviceAuth: 'Failed to start Kiro device authorization',
+                    failedToStartSocialAuth: 'Failed to start Kiro social authorization',
+                    socialAuthFailed: 'Kiro social authorization failed',
+                    scanTokensFailed: 'Failed to scan Kiro tokens',
+                    deviceAuthFailed: 'Kiro authorization failed'
                   }
-                },      // Gemini specific (platform-wide)
+                },
+      kiro: {
+        deviceAuthTitle: 'Get token automatically',
+        deviceAuthDesc: 'Use AWS device authorization, suitable for Docker servers',
+        socialAuthTitle: 'Social login',
+        socialAuthDesc: 'Google / GitHub / Cognito',
+        scanTitle: 'Scan local tokens',
+        scanDesc: 'Read Kiro/AWS caches visible to the server',
+        deviceAuthDockerHint:
+          'Kiro is not a simple copy-paste API key. For Docker server deployments, use device authorization: open the auth link in your browser, enter the user code, and the server will receive refreshable credentials automatically.',
+        socialDockerHint:
+          'Social login must use a Kiro-allowed callback URL. Default: http://127.0.0.1:49153/oauth/callback. Local deployments auto-capture GitHub/Google callbacks and create the account. For Docker/server deployments without port 49153 mapped, paste the final callback URL or code back here.',
+        scanDockerHint:
+          'Scanning only reads files visible to the current server process. For Docker, mount the Kiro/AWS token directory into the container first.',
+        authType: 'Auth Type',
+        provider: 'Provider',
+        pleaseEnterStartUrl: 'Please enter IAM Identity Center Start URL',
+        pleaseEnterRedirectUri: 'Please enter Redirect URI',
+        pleaseEnterCallbackOrCode: 'Please enter callback URL or code',
+        startDeviceAuth: 'Start Authorization',
+        startSocialAuth: 'Start Social Login',
+        completeSocialAuth: 'Complete Login & Create',
+        callbackOrCode: 'Callback URL or Code',
+        callbackOrCodePlaceholder: 'Paste http://127.0.0.1:49153/oauth/callback?code=...&state=... or just the code',
+        scanTokens: 'Scan Tokens',
+        needsRefreshInfo: 'Check needed',
+        waitingForAuth: 'Waiting for authorization...',
+        openAuthUrl: 'Open Auth Page',
+        userCode: 'User Code',
+        pollingHint: 'After browser authorization completes, no callback URL is needed. The system will detect completion and create the account.'
+      },
+      // Gemini specific (platform-wide)
       gemini: {
         helpButton: 'Help',
         helpDialog: {
@@ -3798,7 +3840,13 @@ export default {
         gemini3Image: 'G31FI',
         claude: 'Claude',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        kiroCredits: 'Credits',
+        kiroFreeTrial: 'Trial',
+        kiroBonus: 'Bonus',
+        kiroResetDays: 'resets in {n}d',
+        kiroResetHours: 'resets in {n}h',
+        kiroResetNow: 'resets now'
       },
       tier: {
         free: 'Free',

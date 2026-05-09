@@ -76,6 +76,21 @@ const antigravityModels = [
   'tab_flash_lite_preview'
 ]
 
+const kiroModels = [
+  'claude-opus-4-7',
+  'claude-opus-4-7-thinking',
+  'claude-opus-4-6',
+  'claude-opus-4-6-thinking',
+  'claude-sonnet-4-6',
+  'claude-opus-4-5',
+  'claude-opus-4-5-20251101',
+  'claude-haiku-4-5',
+  'claude-sonnet-4-5',
+  'claude-sonnet-4-5-20250929',
+  'claude-sonnet-4-20250514',
+  'claude-3-7-sonnet-20250219'
+]
+
 // 智谱 GLM
 const zhipuModels = [
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
@@ -205,6 +220,7 @@ const perplexityModels = [
 const allModelsList: string[] = [
   ...openaiModels,
   ...claudeModels,
+  ...kiroModels,
   ...geminiModels,
   ...zhipuModels,
   ...qwenModels,
@@ -308,6 +324,18 @@ const bedrockPresetMappings = [
   { label: 'Haiku 4.5', from: 'claude-haiku-4-5', to: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
 ]
 
+const kiroPresetMappings = [
+  { label: 'Opus 4.7', from: 'claude-opus-4-7', to: 'claude-opus-4.7', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
+  { label: 'Opus 4.7 Thinking', from: 'claude-opus-4-7-thinking', to: 'claude-opus-4.7', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
+  { label: 'Opus 4.6', from: 'claude-opus-4-6', to: 'claude-opus-4.6', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'Opus 4.6 Thinking', from: 'claude-opus-4-6-thinking', to: 'claude-opus-4.6', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
+  { label: 'Sonnet 4.6', from: 'claude-sonnet-4-6', to: 'claude-sonnet-4.6', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
+  { label: 'Sonnet 4.5', from: 'claude-sonnet-4-5', to: 'CLAUDE_SONNET_4_5_20250929_V1_0', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+  { label: 'Sonnet 4.5 Date', from: 'claude-sonnet-4-5-20250929', to: 'CLAUDE_SONNET_4_5_20250929_V1_0', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'Opus 4.5', from: 'claude-opus-4-5', to: 'claude-opus-4.5', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },
+  { label: 'Haiku 4.5', from: 'claude-haiku-4-5', to: 'claude-haiku-4.5', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' }
+]
+
 // Antigravity 默认映射（从后端 API 获取，与 constants.go 保持一致）
 // 使用 fetchAntigravityDefaultMappings() 异步获取
 import { getAntigravityDefaultModelMapping } from '@/api/admin/accounts'
@@ -354,6 +382,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
     case 'antigravity': return antigravityModels
+    case 'kiro': return kiroModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels
@@ -378,6 +407,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
+  if (platform === 'kiro') return kiroPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
 }

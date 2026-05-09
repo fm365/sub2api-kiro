@@ -2067,6 +2067,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        kiro: 'Kiro',
       },
       saving: '保存中...',
       noGroups: '暂无分组',
@@ -3044,6 +3045,7 @@ export default {
         anthropic: 'Anthropic',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        kiro: 'Kiro',
       },
       types: {
         oauth: 'OAuth',
@@ -3053,6 +3055,7 @@ export default {
         codeAssist: 'Code Assist',
         antigravityOauth: 'Antigravity OAuth',
         antigravityApikey: '通过 Base URL + API Key 连接',
+        kiroToken: '导入已有 Kiro token，用于 Claude Code 类客户端',
         upstream: '对接上游',
         upstreamDesc: '通过 Base URL + API Key 连接上游',
         api_key: 'API Key',
@@ -3132,7 +3135,13 @@ export default {
         gemini3Image: 'G31FI',
         claude: 'Claude',
         passiveSampled: '被动采样',
-        activeQuery: '查询'
+        activeQuery: '查询',
+        kiroCredits: 'Credits',
+        kiroFreeTrial: '试用',
+        kiroBonus: '奖励',
+        kiroResetDays: '{n}天后重置',
+        kiroResetHours: '{n}小时后重置',
+        kiroResetNow: '现在重置'
       },
       tier: {
         free: 'Free',
@@ -3710,7 +3719,45 @@ export default {
           validateAndCreate: '验证并创建账号',
           pleaseEnterRefreshToken: '请输入 Refresh Token',
           failedToValidateRT: '验证 Refresh Token 失败'
+        },
+        kiro: {
+          title: 'Kiro 账户授权',
+          failedToStartDeviceAuth: '启动 Kiro 设备授权失败',
+          failedToStartSocialAuth: '启动 Kiro 社交登录失败',
+          socialAuthFailed: 'Kiro 社交登录失败',
+          scanTokensFailed: '扫描 Kiro token 失败',
+          deviceAuthFailed: 'Kiro 授权失败'
         }
+      },
+      kiro: {
+        deviceAuthTitle: '自动获取 token',
+        deviceAuthDesc: '通过 AWS 设备码授权，适合 Docker 服务器部署',
+        socialAuthTitle: '社交登录',
+        socialAuthDesc: 'Google / GitHub / Cognito',
+        scanTitle: '扫描本机 token',
+        scanDesc: '读取服务端可访问的 Kiro/AWS 缓存',
+        deviceAuthDockerHint:
+          'Kiro 不像普通 API Key 一样复制即可。服务器 Docker 部署时推荐用设备码：在浏览器打开授权链接并输入用户码，服务端会自动拿到可刷新的凭据。',
+        socialDockerHint:
+          '社交登录必须使用 Kiro 允许的回调地址，默认 http://127.0.0.1:49153/oauth/callback。本机部署会自动接收 GitHub/Google 回调并创建账号；Docker/服务器部署如未映射 49153 端口，可把最终回调 URL 或 code 粘贴回来。',
+        scanDockerHint:
+          '扫描只会读取当前服务进程能访问到的文件。Docker 部署时需要把 Kiro/AWS token 目录挂载到容器内才会扫到。',
+        authType: '授权类型',
+        provider: '登录方式',
+        pleaseEnterStartUrl: '请输入 IAM Identity Center Start URL',
+        pleaseEnterRedirectUri: '请输入 Redirect URI',
+        pleaseEnterCallbackOrCode: '请输入回调 URL 或 code',
+        startDeviceAuth: '开始授权',
+        startSocialAuth: '开始社交登录',
+        completeSocialAuth: '完成登录并创建账号',
+        callbackOrCode: '回调 URL 或 Code',
+        callbackOrCodePlaceholder: '粘贴 http://127.0.0.1:49153/oauth/callback?code=...&state=... 或仅粘贴 code',
+        scanTokens: '扫描 token',
+        needsRefreshInfo: '需确认',
+        waitingForAuth: '等待授权完成...',
+        openAuthUrl: '打开授权页',
+        userCode: '用户码',
+        pollingHint: '完成浏览器授权后无需复制回调地址，系统会自动检测并创建账号。'
       },
       // Gemini specific (platform-wide)
       gemini: {

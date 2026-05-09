@@ -213,6 +213,22 @@ func RegisterGatewayRoutes(
 		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
 	}
 
+	// Kiro 专用 Claude Messages 路由（面向 Claude Code / OpenCode 等客户端）
+	kiroV1 := r.Group("/kiro/v1")
+	kiroV1.Use(bodyLimit)
+	kiroV1.Use(clientRequestID)
+	kiroV1.Use(opsErrorLogger)
+	kiroV1.Use(endpointNorm)
+	kiroV1.Use(middleware.ForcePlatform(service.PlatformKiro))
+	kiroV1.Use(gin.HandlerFunc(apiKeyAuth))
+	kiroV1.Use(requireGroupAnthropic)
+	{
+		kiroV1.POST("/messages", h.Gateway.Messages)
+		kiroV1.POST("/messages/count_tokens", h.Gateway.CountTokens)
+		kiroV1.GET("/models", h.Gateway.Models)
+		kiroV1.GET("/usage", h.Gateway.Usage)
+	}
+
 }
 
 // getGroupPlatform extracts the group platform from the API Key stored in context.

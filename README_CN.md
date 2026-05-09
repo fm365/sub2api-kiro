@@ -667,6 +667,261 @@ sub2api/
     └── install.sh            # 一键安装脚本
 ```
 
+## 使用示例
+
+### OpenAI 兼容 API
+
+Sub2API 提供完全兼容 OpenAI 的 API 端点，可直接替代 OpenAI 的 Base URL 使用。
+
+#### Chat Completions（流式）
+
+```bash
+curl -X POST http://your-server:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -d '{
+    "model": "claude-sonnet-4-20250514",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ],
+    "stream": true
+  }'
+```
+
+#### Chat Completions（非流式）
+
+```bash
+curl -X POST http://your-server:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "解释量子计算的基本原理"}
+    ]
+  }'
+```
+
+#### Claude Code 集成
+
+```bash
+# 使用 Claude Code CLI 通过 Sub2API
+export ANTHROPIC_BASE_URL="http://your-server:8080"
+export ANTHROPIC_AUTH_TOKEN="sk-your-api-key"
+
+claude "帮我写一个 Python 快速排序"
+```
+
+#### Codex CLI 集成
+
+```bash
+# 使用 OpenAI Codex CLI 通过 Sub2API
+export OPENAI_BASE_URL="http://your-server:8080/v1"
+export OPENAI_API_KEY="sk-your-api-key"
+
+codex "解释这段代码的作用"
+```
+
+#### Gemini API 调用
+
+```bash
+curl -X POST http://your-server:8080/v1beta/models/gemini-2.5-flash:generateContent \
+  -H "Content-Type: application/json" \
+  -H "x-goog-api-key: sk-your-api-key" \
+  -d '{
+    "contents": [{
+      "parts": [{"text": "你好，介绍一下你自己"}]
+    }]
+  }'
+```
+
+### Python SDK 示例
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://your-server:8080/v1",
+    api_key="sk-your-api-key"
+)
+
+# 流式调用
+stream = client.chat.completions.create(
+    model="claude-sonnet-4-20250514",
+    messages=[{"role": "user", "content": "用 Python 写一个 HTTP 服务器"}],
+    stream=True
+)
+
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+```
+
+### Node.js SDK 示例
+
+```javascript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  baseURL: 'http://your-server:8080/v1',
+  apiKey: 'sk-your-api-key',
+});
+
+const response = await client.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: '写一首关于编程的诗' }],
+});
+
+console.log(response.choices[0].message.content);
+```
+
+### API Key 管理
+
+用户可通过管理后台或以下 API 管理自己的 API Key：
+
+```bash
+# 获取当前用户信息
+curl -H "Authorization: Bearer your-jwt-token" \
+  http://your-server:8080/api/v1/user/profile
+
+# 创建 API Key
+curl -X POST http://your-server:8080/api/v1/api-keys \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-jwt-token" \
+  -d '{"name": "my-app-key"}'
+
+# 查看用量统计
+curl -H "Authorization: Bearer your-jwt-token" \
+  http://your-server:8080/api/v1/usage
+```
+
+### 支持的模型
+
+Sub2API 通过上游账号映射支持多种模型，包括但不限于：
+
+| 平台 | 模型示例 |
+|------|---------|
+| Anthropic | `claude-sonnet-4-20250514`、`claude-opus-4-20250514` |
+| OpenAI | `gpt-4o`、`gpt-4.1`、`o3`、`gpt-5.3-codex` |
+| Google | `gemini-2.5-pro`、`gemini-2.5-flash` |
+| Antigravity | 通过专用端点访问 Claude / Gemini |
+
+> 具体可用模型取决于管理员配置的上游账号和模型映射。
+
+---
+
+## 贡献指南
+
+感谢你对 Sub2API 项目的关注！我们欢迎任何形式的贡献。
+
+### 如何贡献
+
+1. **Fork** 本仓库到你的 GitHub 账号
+2. **Clone** 你的 Fork 到本地
+3. 创建功能分支：`git checkout -b feature/your-feature`
+4. 提交你的修改
+5. 推送到你的 Fork：`git push origin feature/your-feature`
+6. 创建 **Pull Request**
+
+### 签署 CLA
+
+提交 PR 前，你需要签署 [贡献者许可协议 (CLA)](CLA.md)。在 PR 中回复以下内容即可完成签署：
+
+> I have read the CLA Document and I hereby sign the CLA
+
+### 开发环境搭建
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/your-username/sub2api.git
+cd sub2api
+
+# 2. 启动数据库（推荐 Docker）
+docker run -d --name pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
+docker run -d --name redis -p 6379:6379 redis:7
+
+# 3. 创建数据库
+psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE sub2api;"
+
+# 4. 后端开发
+cd backend
+cp ../deploy/config.example.yaml ./config.yaml  # 编辑配置
+go run ./cmd/server
+
+# 5. 前端开发（新终端）
+cd frontend
+pnpm install
+pnpm run dev
+```
+
+### 代码规范
+
+**后端 (Go)**
+- 使用 `golangci-lint` 进行代码检查
+- 遵循 Go 标准项目布局
+- 修改 `ent/schema` 后必须运行 `go generate ./ent`
+- 新增 interface 方法后，所有 test stub 必须补全
+
+**前端 (Vue/TypeScript)**
+- 使用 `pnpm` 作为包管理器（不要用 npm）
+- 使用 ESLint 进行代码检查
+- 提交时确保 `pnpm-lock.yaml` 同步更新
+
+### 提交规范
+
+采用 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
+
+```
+<type>(<scope>): <description>
+
+[可选正文]
+
+[可选脚注]
+```
+
+常用类型：
+
+| 类型 | 说明 |
+|------|------|
+| `feat` | 新功能 |
+| `fix` | Bug 修复 |
+| `docs` | 文档更新 |
+| `style` | 代码格式（不影响逻辑） |
+| `refactor` | 重构 |
+| `test` | 测试相关 |
+| `chore` | 构建/工具链变更 |
+
+**示例：**
+```
+feat(gateway): 添加 Gemini 模型路由支持
+fix(billing): 修复 Token 计费精度问题
+docs: 更新 README 安装说明
+```
+
+### PR 提交前检查清单
+
+- [ ] 后端单元测试通过：`cd backend && go test -tags=unit ./...`
+- [ ] 后端集成测试通过：`cd backend && go test -tags=integration ./...`
+- [ ] 代码质量检查通过：`cd backend && golangci-lint run ./...`
+- [ ] 前端代码检查通过：`cd frontend && pnpm run lint:check && pnpm run typecheck`
+- [ ] `pnpm-lock.yaml` 已同步（如修改了 `package.json`）
+- [ ] Ent 生成的代码已提交（如修改了 `ent/schema`）
+- [ ] 所有 test stub 补全新接口方法（如修改了 interface）
+- [ ] 已签署 CLA
+
+### 报告问题
+
+发现 Bug 或有功能建议？请通过 [GitHub Issues](https://github.com/Wei-Shaw/sub2api/issues) 提交，包含：
+
+- 问题描述
+- 复现步骤
+- 期望行为与实际行为
+- 环境信息（OS、Go 版本、Node 版本等）
+- 相关日志或截图
+
+---
+
 ## 免责声明
 
 > **使用本项目前请仔细阅读：**

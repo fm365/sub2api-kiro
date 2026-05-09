@@ -142,6 +142,72 @@
       <div v-else class="text-xs text-gray-400">-</div>
     </template>
 
+    <!-- Kiro accounts: real quota from getUsageLimits -->
+    <template v-else-if="account.platform === 'kiro'">
+      <div v-if="loading" class="space-y-1.5">
+        <div class="flex items-center gap-1">
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+        </div>
+        <div class="flex items-center gap-1">
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+        </div>
+      </div>
+      <div v-else-if="error" class="text-xs text-red-500">
+        {{ error }}
+      </div>
+      <div v-else-if="usageInfo?.error" class="space-y-1">
+        <span
+          :class="[
+            'inline-block rounded px-1.5 py-0.5 text-[10px] font-medium',
+            needsReauth
+              ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300'
+              : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+          ]"
+        >
+          {{ needsReauth ? t('admin.accounts.needsReauth') : usageErrorLabel }}
+        </span>
+      </div>
+      <div v-else-if="kiroPrimaryBreakdown" class="space-y-1">
+        <div v-if="kiroTierLabel" class="flex items-center gap-1">
+          <span
+            :class="[
+              'inline-block rounded px-1.5 py-0.5 text-[10px] font-medium',
+              kiroTierClass
+            ]"
+          >
+            {{ kiroTierLabel }}
+          </span>
+          <span
+            v-if="kiroResetLabel"
+            class="text-[10px] text-gray-400 dark:text-gray-500"
+          >
+            {{ kiroResetLabel }}
+          </span>
+        </div>
+        <UsageProgressBar
+          :label="kiroUsageUnitLabel"
+          :utilization="kiroPrimaryBreakdown.total_percent"
+          :resets-at="kiroPrimaryBreakdown.next_date_reset || kiroUsage?.next_date_reset || null"
+          :show-now-when-idle="true"
+          color="emerald"
+        />
+        <p class="text-[10px] leading-tight text-gray-500 dark:text-gray-400">
+          {{ kiroUsageAmountLabel }}
+        </p>
+        <p
+          v-if="kiroExtraCreditLabel"
+          class="text-[9px] leading-tight text-gray-400 dark:text-gray-500"
+        >
+          {{ kiroExtraCreditLabel }}
+        </p>
+      </div>
+      <div v-else class="text-xs text-gray-400">-</div>
+    </template>
+
     <!-- Antigravity OAuth accounts: fetch usage from API -->
     <template v-else-if="account.platform === 'antigravity' && account.type === 'oauth'">
       <!-- 账户类型徽章 -->
@@ -524,6 +590,7 @@ let visibilityObserver: IntersectionObserver | null = null
 const showUsageWindows = computed(() => {
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   if (props.account.platform === 'gemini') return true
+  if (props.account.platform === 'kiro') return true
   return props.account.type === 'oauth' || props.account.type === 'setup-token'
 })
 
@@ -539,6 +606,9 @@ const shouldFetchUsage = computed(() => {
   }
   if (props.account.platform === 'openai') {
     return props.account.type === 'oauth'
+  }
+  if (props.account.platform === 'kiro') {
+    return true
   }
   return false
 })
@@ -649,6 +719,89 @@ const aiCreditsDisplay = computed(() => {
   const total = credits.reduce((sum, credit) => sum + (credit.amount ?? 0), 0)
   if (total <= 0) return null
   return total.toFixed(0)
+})
+
+const kiroUsage = computed(() => usageInfo.value?.kiro_usage || null)
+
+const kiroPrimaryBreakdown = computed(() => {
+  const breakdown = kiroUsage.value?.usage_breakdown
+  if (!breakdown || breakdown.length === 0) return null
+  return breakdown.find((item) => item.resource_type === 'AGENTIC_REQUEST') || breakdown[0]
+})
+
+const formatKiroAmount = (amount: number | null | undefined): string => {
+  if (amount == null || Number.isNaN(amount)) return '0'
+  if (Math.abs(amount) >= 1000) return formatCompactNumber(amount)
+  return Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2).replace(/\.?0+$/, '')
+}
+
+const kiroUsageUnitLabel = computed(() => {
+  const item = kiroPrimaryBreakdown.value
+  if (!item) return 'cr'
+  const display = item.display_name || item.display_name_plural || ''
+  const unit = item.unit || ''
+  if (/credit/i.test(display) || /credit/i.test(unit) || item.resource_type === 'CREDIT') return 'cr'
+  return unit || display || 'cr'
+})
+
+const kiroUsageAmountLabel = computed(() => {
+  const item = kiroPrimaryBreakdown.value
+  if (!item) return ''
+  const unit = item.display_name_plural || item.display_name || item.unit || t('admin.accounts.usageWindow.kiroCredits')
+  return `${formatKiroAmount(item.total_used)} / ${formatKiroAmount(item.total_limit)} ${unit}`
+})
+
+const kiroResetLabel = computed(() => {
+  const resetAt = kiroPrimaryBreakdown.value?.next_date_reset || kiroUsage.value?.next_date_reset
+  if (!resetAt) return null
+  const date = new Date(resetAt)
+  const diffMs = date.getTime() - Date.now()
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return t('admin.accounts.usageWindow.kiroResetNow')
+  const diffDays = Math.ceil(diffMs / (24 * 60 * 60 * 1000))
+  if (diffDays >= 1) return t('admin.accounts.usageWindow.kiroResetDays', { n: diffDays })
+  const diffHours = Math.ceil(diffMs / (60 * 60 * 1000))
+  return t('admin.accounts.usageWindow.kiroResetHours', { n: diffHours })
+})
+
+const kiroExtraCreditLabel = computed(() => {
+  const item = kiroPrimaryBreakdown.value
+  if (!item) return null
+  const parts: string[] = []
+  if (item.free_trial && item.free_trial.usage_limit > 0) {
+    parts.push(`${t('admin.accounts.usageWindow.kiroFreeTrial')}: ${formatKiroAmount(item.free_trial.current_usage)} / ${formatKiroAmount(item.free_trial.usage_limit)}`)
+  }
+  const activeBonuses = (item.bonuses || []).filter((bonus) => bonus.status === 'ACTIVE' || bonus.status === 'REDEEMED')
+  const bonusLimit = activeBonuses.reduce((sum, bonus) => sum + (bonus.usage_limit || 0), 0)
+  if (bonusLimit > 0) {
+    const bonusUsed = activeBonuses.reduce((sum, bonus) => sum + (bonus.current_usage || 0), 0)
+    parts.push(`${t('admin.accounts.usageWindow.kiroBonus')}: ${formatKiroAmount(bonusUsed)} / ${formatKiroAmount(bonusLimit)}`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
+})
+
+const kiroTierLabel = computed(() => {
+  const subscription = kiroUsage.value?.subscription
+  if (!subscription) return null
+  if (subscription.title) return subscription.title
+  switch (subscription.account_type) {
+    case 'FREE':
+      return t('admin.accounts.tier.free')
+    case 'PRO':
+      return t('admin.accounts.tier.pro')
+    default:
+      return subscription.type || null
+  }
+})
+
+const kiroTierClass = computed(() => {
+  switch (kiroUsage.value?.subscription?.account_type) {
+    case 'PRO':
+      return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
+    case 'FREE':
+      return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+    default:
+      return 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'
+  }
 })
 
 // Antigravity 账户类型（从 load_code_assist 响应中提取）

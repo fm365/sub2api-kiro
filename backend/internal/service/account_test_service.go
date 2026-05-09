@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -192,7 +193,101 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
+	if account.Platform == PlatformKiro {
+		return s.testKiroAccountConnection(c, account, modelID)
+	}
+
 	return s.testClaudeAccountConnection(c, account, modelID)
+}
+
+// testKiroAccountConnection tests a Kiro account with the same Kiro protocol used by /kiro/v1/messages.
+func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *Account, modelID string) error {
+	ctx := c.Request.Context()
+
+	testModelID := strings.TrimSpace(modelID)
+	if testModelID == "" {
+		testModelID = kiro.DefaultHealthModel
+	}
+	if !account.IsModelSupported(testModelID) {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("model %s is not supported by this Kiro account", testModelID))
+	}
+	mappedModel := account.GetMappedModel(testModelID)
+	if strings.TrimSpace(mappedModel) == "" {
+		mappedModel = kiro.DefaultHealthModel
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+
+	client := kiro.NewClient(kiroCredentialsFromAccount(account), nil)
+	refresh, err := client.EnsureAccessToken(ctx)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Kiro token refresh failed: "+err.Error())
+	}
+	if refresh.Refreshed {
+		persistKiroCredentials(ctx, s.accountRepo, account, refresh.Credentials)
+		client = kiro.NewClient(refresh.Credentials, nil)
+	}
+
+	kiroReq := kiro.Request{
+		Model:    mappedModel,
+		Messages: []kiro.Message{{Role: "user", Content: json.RawMessage(`"hi"`)}},
+		Stream:   false,
+	}
+	upstreamReq, _, err := client.BuildHTTPRequest(ctx, kiroReq)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to build Kiro request")
+	}
+
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Kiro request failed: %s", err.Error()))
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized && strings.TrimSpace(client.Credentials().RefreshToken) != "" {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 2<<20))
+		_ = resp.Body.Close()
+		forcedRefresh, refreshErr := client.ForceRefreshAccessToken(ctx)
+		if refreshErr != nil {
+			return s.sendErrorAndEnd(c, "Kiro token refresh failed: "+refreshErr.Error())
+		}
+		persistKiroCredentials(ctx, s.accountRepo, account, forcedRefresh.Credentials)
+		client = kiro.NewClient(forcedRefresh.Credentials, nil)
+		upstreamReq, _, err = client.BuildHTTPRequest(ctx, kiroReq)
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to build Kiro request")
+		}
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		if err != nil {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Kiro request failed: %s", err.Error()))
+		}
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to read Kiro response: %s", err.Error()))
+	}
+	if resp.StatusCode >= 400 {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Kiro API returned %d: %s", resp.StatusCode, string(body)))
+	}
+
+	kiroResp := kiro.ParseNonStreamingResponse(body)
+	text := strings.TrimSpace(kiroResp.Content)
+	if text == "" {
+		text = "(empty response)"
+	}
+	s.sendEvent(c, TestEvent{Type: "content", Text: text})
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection

@@ -483,7 +483,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'kiro'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -666,7 +666,7 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'kiro'
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
@@ -909,6 +909,57 @@ export interface AntigravityModelQuota {
   reset_time: string  // 重置时间 ISO8601
 }
 
+export interface KiroUsageBreakdownItem {
+  resource_type?: string
+  display_name?: string
+  display_name_plural?: string
+  unit?: string
+  currency?: string
+  current_usage: number
+  usage_limit: number
+  current_overages: number
+  overage_cap: number
+  overage_rate: number
+  overage_charges: number
+  next_date_reset?: string | null
+  free_trial?: {
+    status?: string
+    current_usage: number
+    usage_limit: number
+    expires_at?: string | null
+  } | null
+  bonuses?: Array<{
+    code?: string
+    display_name?: string
+    description?: string
+    status?: string
+    current_usage: number
+    usage_limit: number
+    redeemed_at?: string | null
+    expires_at?: string | null
+  }> | null
+  total_used: number
+  total_limit: number
+  total_percent: number
+}
+
+export interface KiroUsageInfo {
+  days_until_reset: number
+  next_date_reset?: string | null
+  subscription?: {
+    title?: string
+    type?: string
+    account_type?: string
+    upgrade_capability?: string
+    overage_capability?: string
+  } | null
+  user?: {
+    email?: string
+    user_id?: string
+  } | null
+  usage_breakdown?: KiroUsageBreakdownItem[] | null
+}
+
 export interface AccountUsageInfo {
   source?: 'passive' | 'active'
   updated_at: string | null
@@ -927,6 +978,7 @@ export interface AccountUsageInfo {
     amount?: number
     minimum_balance?: number
   }> | null
+  kiro_usage?: KiroUsageInfo | null
   // Antigravity 403 forbidden 状态
   is_forbidden?: boolean
   forbidden_reason?: string

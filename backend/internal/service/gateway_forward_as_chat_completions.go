@@ -35,6 +35,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 ) (*ForwardResult, error) {
 	startTime := time.Now()
 
+	if account != nil && account.Platform == PlatformKiro {
+		return s.forwardKiroAsChatCompletions(ctx, c, account, body, parsed)
+	}
+
 	// 1. Parse Chat Completions request
 	var ccReq apicompat.ChatCompletionsRequest
 	if err := json.Unmarshal(body, &ccReq); err != nil {

@@ -905,6 +905,7 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountGroupsChanged, &accountID, nil, payload); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue bind groups failed: account=%d err=%v", accountID, err)
 	}
+	r.syncSchedulerAccountSnapshot(ctx, accountID)
 	return nil
 }
 
