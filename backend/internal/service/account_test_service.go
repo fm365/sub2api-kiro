@@ -208,7 +208,7 @@ func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *
 	if testModelID == "" {
 		testModelID = kiro.DefaultHealthModel
 	}
-	if !account.IsModelSupported(testModelID) {
+	if !account.IsModelSupported(testModelID) && !kiro.IsKnownModel(testModelID) {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("model %s is not supported by this Kiro account", testModelID))
 	}
 	mappedModel := account.GetMappedModel(testModelID)

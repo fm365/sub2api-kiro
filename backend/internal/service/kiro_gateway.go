@@ -30,7 +30,7 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 		return nil, err
 	}
 	originalModel := req.Model
-	if !account.IsModelSupported(originalModel) {
+	if !s.isModelSupportedByAccount(account, originalModel) {
 		c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": fmt.Sprintf("model %s is not supported by this Kiro account", originalModel)}})
 		return nil, fmt.Errorf("kiro model not supported: %s", originalModel)
 	}
@@ -96,11 +96,16 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 			c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": "prompt is too long: 200001 tokens > 200000 maximum"}})
 			return nil, fmt.Errorf("kiro context limit exceeded")
 		}
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: body}
+		upstreamStatus := normalizeKiroUpstreamStatus(resp.StatusCode, body)
+		if s.shouldFailoverUpstreamError(upstreamStatus) {
+			return nil, &UpstreamFailoverError{StatusCode: upstreamStatus, ResponseBody: body}
 		}
-		c.JSON(mapUpstreamStatusCode(resp.StatusCode), gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Kiro upstream request failed"}})
-		return nil, fmt.Errorf("kiro upstream error: %d", resp.StatusCode)
+		if upstreamStatus == http.StatusTooManyRequests {
+			c.JSON(http.StatusTooManyRequests, gin.H{"type": "error", "error": gin.H{"type": "rate_limit_error", "message": "Upstream rate limit exceeded, please retry later"}})
+			return nil, fmt.Errorf("kiro upstream error: %d", upstreamStatus)
+		}
+		c.JSON(mapUpstreamStatusCode(upstreamStatus), gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Kiro upstream request failed"}})
+		return nil, fmt.Errorf("kiro upstream error: %d", upstreamStatus)
 	}
 
 	if parsed.OnUpstreamAccepted != nil {
@@ -197,37 +202,229 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 
 	var firstTokenMs *int
 	var contentBuilder strings.Builder
-	handleEvent := func(event kiro.StreamEvent) bool {
-		if event.Type != "content" || event.Content == "" {
+	blockIndex := 0
+	currentBlockType := "text"
+	currentToolUseID := ""
+	toolUseSeen := false
+	toolBlockOpen := true
+	textBlockOpen := true
+	openToolBlock := func(tool *kiro.ToolUse) bool {
+		if tool == nil {
 			return false
 		}
-		if firstTokenMs == nil {
+		blockIndex++
+		currentBlockType = "tool"
+		currentToolUseID = tool.ToolUseID
+		toolBlockOpen = true
+		toolUseSeen = true
+		return write("content_block_start", gin.H{
+			"type":  "content_block_start",
+			"index": blockIndex,
+			"content_block": gin.H{
+				"type":  "tool_use",
+				"id":    tool.ToolUseID,
+				"name":  tool.Name,
+				"input": gin.H{},
+			},
+		})
+	}
+	openTextBlock := func() bool {
+		blockIndex++
+		currentBlockType = "text"
+		currentToolUseID = ""
+		textBlockOpen = true
+		return write("content_block_start", gin.H{
+			"type":  "content_block_start",
+			"index": blockIndex,
+			"content_block": gin.H{
+				"type": "text",
+				"text": "",
+			},
+		})
+	}
+	stopCurrentBlock := func() bool {
+		if currentBlockType == "tool" && toolBlockOpen {
+			if write("content_block_stop", gin.H{"type": "content_block_stop", "index": blockIndex}) {
+				return true
+			}
+			toolBlockOpen = false
+		}
+		if currentBlockType == "text" && textBlockOpen {
+			if write("content_block_stop", gin.H{"type": "content_block_stop", "index": blockIndex}) {
+				return true
+			}
+			textBlockOpen = false
+		}
+		currentBlockType = ""
+		currentToolUseID = ""
+		return false
+	}
+	handleEvent := func(event kiro.StreamEvent) bool {
+		if firstTokenMs == nil && (event.Type == "content" || event.Type == "toolUse" || event.Type == "toolUseInput" || event.Type == "toolUseStop" || event.Type == "contextUsage") {
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
-		contentBuilder.WriteString(event.Content)
-		usage.OutputTokens += (len([]rune(event.Content)) + 3) / 4
-		return write("content_block_delta", gin.H{"type": "content_block_delta", "index": 0, "delta": gin.H{"type": "text_delta", "text": event.Content}})
+		switch event.Type {
+		case "content":
+			if event.Content == "" {
+				return false
+			}
+			if currentBlockType == "tool" {
+				if stopCurrentBlock() {
+					return true
+				}
+				if openTextBlock() {
+					return true
+				}
+			} else if currentBlockType == "" {
+				if openTextBlock() {
+					return true
+				}
+			}
+			contentBuilder.WriteString(event.Content)
+			usage.OutputTokens += (len([]rune(event.Content)) + 3) / 4
+			return write("content_block_delta", gin.H{"type": "content_block_delta", "index": blockIndex, "delta": gin.H{"type": "text_delta", "text": event.Content}})
+		case "toolUse":
+			if event.ToolUse == nil {
+				return false
+			}
+			if currentBlockType == "text" && textBlockOpen {
+				if stopCurrentBlock() {
+					return true
+				}
+			}
+			if currentBlockType != "tool" || !toolBlockOpen || currentToolUseID != event.ToolUse.ToolUseID {
+				if openToolBlock(event.ToolUse) {
+					return true
+				}
+			}
+			if event.ToolUse.Input != "" {
+				if write("content_block_delta", gin.H{
+					"type":  "content_block_delta",
+					"index": blockIndex,
+					"delta": gin.H{"type": "input_json_delta", "partial_json": event.ToolUse.Input},
+				}) {
+					return true
+				}
+			}
+			if event.ToolUse.Stop {
+				if write("content_block_stop", gin.H{"type": "content_block_stop", "index": blockIndex}) {
+					return true
+				}
+				toolBlockOpen = false
+				currentBlockType = ""
+				currentToolUseID = ""
+			}
+			return false
+		case "toolUseInput":
+			if event.Input == "" {
+				return false
+			}
+			if currentBlockType != "tool" || !toolBlockOpen {
+				return false
+			}
+			return write("content_block_delta", gin.H{
+				"type":  "content_block_delta",
+				"index": blockIndex,
+				"delta": gin.H{"type": "input_json_delta", "partial_json": event.Input},
+			})
+		case "toolUseStop":
+			if currentBlockType != "tool" || !toolBlockOpen {
+				return false
+			}
+			if write("content_block_stop", gin.H{"type": "content_block_stop", "index": blockIndex}) {
+				return true
+			}
+			toolBlockOpen = false
+			currentBlockType = ""
+			currentToolUseID = ""
+			return false
+		case "contextUsage":
+			return false
+		default:
+			return false
+		}
 	}
 
 	if isKiroEventStreamResponse(resp.Header) {
-		decoder := kiro.NewEventStreamDecoder(resp.Body)
-		for {
-			event, err := decoder.Decode()
-			if err != nil {
-				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-					break
-				}
-				return usage, firstTokenMs, false, err
+		type streamEvent struct {
+			event kiro.StreamEvent
+			err   error
+		}
+		events := make(chan streamEvent, 16)
+		done := make(chan struct{})
+		sendEvent := func(ev streamEvent) bool {
+			select {
+			case events <- ev:
+				return true
+			case <-done:
+				return false
 			}
+		}
+		go func() {
+			defer close(events)
+			decoder := kiro.NewEventStreamDecoder(resp.Body)
+			for {
+				event, err := decoder.Decode()
+				if err != nil {
+					if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+						return
+					}
+					_ = sendEvent(streamEvent{err: err})
+					return
+				}
+				if !sendEvent(streamEvent{event: event}) {
+					return
+				}
+			}
+		}()
+		defer close(done)
+
+		keepaliveInterval := time.Duration(0)
+		if s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0 {
+			keepaliveInterval = time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
+		}
+		var keepaliveTicker *time.Ticker
+		if keepaliveInterval > 0 {
+			keepaliveTicker = time.NewTicker(keepaliveInterval)
+			defer keepaliveTicker.Stop()
+		}
+		var keepaliveCh <-chan time.Time
+		if keepaliveTicker != nil {
+			keepaliveCh = keepaliveTicker.C
+		}
+		lastDataAt := time.Now()
+
+		streamDone := false
+	streamLoop:
+		for {
 			select {
 			case <-ctx.Done():
 				return usage, firstTokenMs, true, nil
-			default:
+			case ev, ok := <-events:
+				if !ok {
+					streamDone = true
+					break streamLoop
+				}
+				if ev.err != nil {
+					return usage, firstTokenMs, false, ev.err
+				}
+				lastDataAt = time.Now()
+				if handleEvent(ev.event) {
+					return usage, firstTokenMs, true, nil
+				}
+			case <-keepaliveCh:
+				if keepaliveInterval <= 0 || time.Since(lastDataAt) < keepaliveInterval {
+					continue
+				}
+				if _, err := fmt.Fprint(c.Writer, "event: ping\ndata: {\"type\": \"ping\"}\n\n"); err != nil {
+					return usage, firstTokenMs, true, nil
+				}
+				flusher.Flush()
 			}
-			if handleEvent(event) {
-				return usage, firstTokenMs, true, nil
-			}
+		}
+		if !streamDone {
+			return usage, firstTokenMs, false, errors.New("kiro stream ended unexpectedly")
 		}
 	} else {
 		var buffer string
@@ -257,10 +454,16 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 		}
 	}
 	usage.InputTokens = usage.OutputTokens / 2
-	if write("content_block_stop", gin.H{"type": "content_block_stop", "index": 0}) {
-		return usage, firstTokenMs, true, nil
+	stopReason := "end_turn"
+	if toolUseSeen {
+		stopReason = "tool_use"
 	}
-	if write("message_delta", gin.H{"type": "message_delta", "delta": gin.H{"stop_reason": "end_turn", "stop_sequence": nil}, "usage": gin.H{"output_tokens": usage.OutputTokens}}) {
+	if currentBlockType != "" {
+		if write("content_block_stop", gin.H{"type": "content_block_stop", "index": blockIndex}) {
+			return usage, firstTokenMs, true, nil
+		}
+	}
+	if write("message_delta", gin.H{"type": "message_delta", "delta": gin.H{"stop_reason": stopReason, "stop_sequence": nil}, "usage": gin.H{"output_tokens": usage.OutputTokens}}) {
 		return usage, firstTokenMs, true, nil
 	}
 	_ = write("message_stop", gin.H{"type": "message_stop"})
@@ -450,4 +653,23 @@ func isKiroContextLimit(status int, body []byte) bool {
 	return reason == "CONTENT_LENGTH_EXCEEDS_THRESHOLD" ||
 		strings.Contains(message, "input is too long") ||
 		strings.Contains(message, "too long")
+}
+
+func normalizeKiroUpstreamStatus(status int, body []byte) int {
+	if status == http.StatusTooManyRequests {
+		return status
+	}
+	if status != http.StatusBadRequest {
+		return status
+	}
+	errType := strings.ToLower(gjson.GetBytes(body, "__type").String())
+	reason := strings.ToUpper(gjson.GetBytes(body, "reason").String())
+	message := strings.ToLower(gjson.GetBytes(body, "message").String())
+	if strings.Contains(errType, "throttlingexception") ||
+		reason == "INSUFFICIENT_MODEL_CAPACITY" ||
+		strings.Contains(message, "high traffic") ||
+		strings.Contains(message, "try again shortly") {
+		return http.StatusTooManyRequests
+	}
+	return status
 }
