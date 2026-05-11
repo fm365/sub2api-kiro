@@ -4,6 +4,8 @@ package service
 
 import (
 	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 )
 
 func TestMatchWildcard(t *testing.T) {
@@ -539,6 +541,29 @@ func TestAccountGetModelMapping_CacheInvalidatesOnMappingLenChange(t *testing.T)
 	second := account.GetModelMapping()
 	if second["claude-opus"] != "opus-b" {
 		t.Fatalf("expected cache invalidated after mapping len change, got: %v", second)
+	}
+}
+
+func TestGatewayServiceIsModelSupportedByAccount_KiroKnownModelBypassesStaleCache(t *testing.T) {
+	account := &Account{
+		Platform: PlatformKiro,
+		modelMappingCache: map[string]string{
+			"claude-sonnet-4-5": "CLAUDE_SONNET_4_5_20250929_V1_0",
+		},
+		modelMappingCacheReady:          true,
+		modelMappingCacheCredentialsPtr: 0,
+		modelMappingCacheRawPtr:         0,
+		modelMappingCacheRawLen:         0,
+		modelMappingCacheRawSig:         0,
+	}
+
+	if account.IsModelSupported(kiro.DefaultHealthModel) {
+		t.Fatalf("expected stale cached mapping to reject %q via Account.IsModelSupported", kiro.DefaultHealthModel)
+	}
+
+	svc := &GatewayService{}
+	if !svc.isModelSupportedByAccount(account, kiro.DefaultHealthModel) {
+		t.Fatalf("expected Kiro helper to accept known model %q despite stale cache", kiro.DefaultHealthModel)
 	}
 }
 
