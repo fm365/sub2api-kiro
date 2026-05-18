@@ -167,6 +167,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					message = "No available compatible accounts"
 				}
 				h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
+				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible accounts", streamStarted)
 				return
 			}
 			if lastFailoverErr != nil {
@@ -186,6 +188,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				message = "No available compatible accounts"
 			}
 			h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
+			markOpsRoutingCapacityLimited(c)
+			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available compatible accounts", streamStarted)
 			return
 		}
 
