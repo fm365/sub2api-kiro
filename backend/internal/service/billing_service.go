@@ -473,101 +473,100 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return s.fallbackPrices["gemini-3.1-pro"]
 	}
 
+	// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
+	// （deepseek-chat / deepseek-reasoner → V4 Flash），未知 deepseek-* 型号不回退，避免误计价。
+	if strings.Contains(modelLower, "deepseek-v4-flash") {
+		return s.fallbackPrices["deepseek-v4-flash"]
+	}
+	if strings.Contains(modelLower, "deepseek-v4-pro") {
+		return s.fallbackPrices["deepseek-v4-pro"]
+	}
+	if strings.Contains(modelLower, "deepseek-chat") || strings.Contains(modelLower, "deepseek-reasoner") {
+		return s.fallbackPrices["deepseek-v4-flash"]
+	}
 
-// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
-// （deepseek-chat / deepseek-reasoner → V4 Flash），未知 deepseek-* 型号不回退，避免误计价。
-if strings.Contains(modelLower, "deepseek-v4-flash") {
-return s.fallbackPrices["deepseek-v4-flash"]
-}
-if strings.Contains(modelLower, "deepseek-v4-pro") {
-return s.fallbackPrices["deepseek-v4-pro"]
-}
-if strings.Contains(modelLower, "deepseek-chat") || strings.Contains(modelLower, "deepseek-reasoner") {
-return s.fallbackPrices["deepseek-v4-flash"]
-}
+	// ---- 国产 LLM 兜底匹配 ----
+	// 匹配策略：长 key 优先（具体模型 → 系列 / 厂商），未知型号不回退以避免误计价。
+	// 与 DeepSeek 一样采用"白名单"语义：未在本表命中的国产模型 alias 一律不返回兜底价。
 
-// ---- 国产 LLM 兜底匹配 ----
-// 匹配策略：长 key 优先（具体模型 → 系列 / 厂商），未知型号不回退以避免误计价。
-// 与 DeepSeek 一样采用"白名单"语义：未在本表命中的国产模型 alias 一律不返回兜底价。
+	// 智谱 GLM（z.ai 公开 SKU：glm-5.1 / glm-5 / glm-5-turbo / glm-4.7 / glm-4.6 / glm-4.5 等）
+	// 匹配顺序：先判别最高 tier，再依次降级。
+	if strings.Contains(modelLower, "glm-5.1") {
+		return s.fallbackPrices["glm-5.1"]
+	}
+	if strings.Contains(modelLower, "glm-5-turbo") || strings.Contains(modelLower, "glm-5turbo") {
+		return s.fallbackPrices["glm-5-turbo"]
+	}
+	if strings.Contains(modelLower, "glm-5") {
+		return s.fallbackPrices["glm-5"]
+	}
+	if strings.Contains(modelLower, "glm-4.7-flashx") {
+		return s.fallbackPrices["glm-4.7-flashx"]
+	}
+	if strings.Contains(modelLower, "glm-4.7-flash") {
+		return s.fallbackPrices["glm-4.7-flash"]
+	}
+	if strings.Contains(modelLower, "glm-4.7") {
+		return s.fallbackPrices["glm-4.7"]
+	}
+	if strings.Contains(modelLower, "glm-4.6") {
+		return s.fallbackPrices["glm-4.6"]
+	}
+	if strings.Contains(modelLower, "glm-4.5-flash") {
+		return s.fallbackPrices["glm-4.5-flash"]
+	}
+	if strings.Contains(modelLower, "glm-4.5-x") || strings.Contains(modelLower, "glm-4.5x") {
+		return s.fallbackPrices["glm-4.5-x"]
+	}
+	if strings.Contains(modelLower, "glm-4.5-airx") || strings.Contains(modelLower, "glm-4.5airx") {
+		return s.fallbackPrices["glm-4.5-airx"]
+	}
+	if strings.Contains(modelLower, "glm-4.5-air") || strings.Contains(modelLower, "glm-4.5air") {
+		return s.fallbackPrices["glm-4.5-air"]
+	}
+	if strings.Contains(modelLower, "glm-4.5") {
+		return s.fallbackPrices["glm-4.5"]
+	}
+	if strings.Contains(modelLower, "glm-4-32b") {
+		return s.fallbackPrices["glm-4-32b-0414-128k"]
+	}
 
-// 智谱 GLM（z.ai 公开 SKU：glm-5.1 / glm-5 / glm-5-turbo / glm-4.7 / glm-4.6 / glm-4.5 等）
-// 匹配顺序：先判别最高 tier，再依次降级。
-if strings.Contains(modelLower, "glm-5.1") {
-return s.fallbackPrices["glm-5.1"]
-}
-if strings.Contains(modelLower, "glm-5-turbo") || strings.Contains(modelLower, "glm-5turbo") {
-return s.fallbackPrices["glm-5-turbo"]
-}
-if strings.Contains(modelLower, "glm-5") {
-return s.fallbackPrices["glm-5"]
-}
-if strings.Contains(modelLower, "glm-4.7-flashx") {
-return s.fallbackPrices["glm-4.7-flashx"]
-}
-if strings.Contains(modelLower, "glm-4.7-flash") {
-return s.fallbackPrices["glm-4.7-flash"]
-}
-if strings.Contains(modelLower, "glm-4.7") {
-return s.fallbackPrices["glm-4.7"]
-}
-if strings.Contains(modelLower, "glm-4.6") {
-return s.fallbackPrices["glm-4.6"]
-}
-if strings.Contains(modelLower, "glm-4.5-flash") {
-return s.fallbackPrices["glm-4.5-flash"]
-}
-if strings.Contains(modelLower, "glm-4.5-x") || strings.Contains(modelLower, "glm-4.5x") {
-return s.fallbackPrices["glm-4.5-x"]
-}
-if strings.Contains(modelLower, "glm-4.5-airx") || strings.Contains(modelLower, "glm-4.5airx") {
-return s.fallbackPrices["glm-4.5-airx"]
-}
-if strings.Contains(modelLower, "glm-4.5-air") || strings.Contains(modelLower, "glm-4.5air") {
-return s.fallbackPrices["glm-4.5-air"]
-}
-if strings.Contains(modelLower, "glm-4.5") {
-return s.fallbackPrices["glm-4.5"]
-}
-if strings.Contains(modelLower, "glm-4-32b") {
-return s.fallbackPrices["glm-4-32b-0414-128k"]
-}
+	// 月之暗面 Kimi（kimi-k2.6 / kimi-k2.5 / kimi-k2-thinking / kimi-k2）
+	// K2-0905 / K2-0711 官方未保留定价，不进入 fallback。
+	if strings.Contains(modelLower, "kimi-k2.6") || strings.Contains(modelLower, "kimi-k2-6") {
+		return s.fallbackPrices["kimi-k2.6"]
+	}
+	if strings.Contains(modelLower, "kimi-k2.5") || strings.Contains(modelLower, "kimi-k2-5") {
+		return s.fallbackPrices["kimi-k2.5"]
+	}
+	if strings.Contains(modelLower, "kimi-k2-thinking") || strings.Contains(modelLower, "kimi-k2-thinking-") {
+		return s.fallbackPrices["kimi-k2-thinking"]
+	}
+	if strings.Contains(modelLower, "kimi-k2") || strings.Contains(modelLower, "kimi/k2") {
+		return s.fallbackPrices["kimi-k2"]
+	}
 
-// 月之暗面 Kimi（kimi-k2.6 / kimi-k2.5 / kimi-k2-thinking / kimi-k2）
-// K2-0905 / K2-0711 官方未保留定价，不进入 fallback。
-if strings.Contains(modelLower, "kimi-k2.6") || strings.Contains(modelLower, "kimi-k2-6") {
-return s.fallbackPrices["kimi-k2.6"]
-}
-if strings.Contains(modelLower, "kimi-k2.5") || strings.Contains(modelLower, "kimi-k2-5") {
-return s.fallbackPrices["kimi-k2.5"]
-}
-if strings.Contains(modelLower, "kimi-k2-thinking") || strings.Contains(modelLower, "kimi-k2-thinking-") {
-return s.fallbackPrices["kimi-k2-thinking"]
-}
-if strings.Contains(modelLower, "kimi-k2") || strings.Contains(modelLower, "kimi/k2") {
-return s.fallbackPrices["kimi-k2"]
-}
+	// MiniMax M 系列（M3 / M2.7 / M2.5 / M2.1 / M2；含 highspeed 变体）
+	if strings.Contains(modelLower, "minimax-m3") || strings.Contains(modelLower, "MiniMax-M3") {
+		return s.fallbackPrices["minimax-m3"]
+	}
+	if strings.Contains(modelLower, "minimax-m2.7-highspeed") || strings.Contains(modelLower, "minimax-m2-7-highspeed") {
+		return s.fallbackPrices["minimax-m2.7-highspeed"]
+	}
+	if strings.Contains(modelLower, "minimax-m2.7") || strings.Contains(modelLower, "minimax-m2-7") {
+		return s.fallbackPrices["minimax-m2.7"]
+	}
+	if strings.Contains(modelLower, "minimax-m2.5") || strings.Contains(modelLower, "minimax-m2-5") {
+		return s.fallbackPrices["minimax-m2.5"]
+	}
+	if strings.Contains(modelLower, "minimax-m2.1") || strings.Contains(modelLower, "minimax-m2-1") {
+		return s.fallbackPrices["minimax-m2.1"]
+	}
+	if strings.Contains(modelLower, "minimax-m2") || strings.Contains(modelLower, "minimax-m-2") {
+		return s.fallbackPrices["minimax-m2"]
+	}
 
-// MiniMax M 系列（M3 / M2.7 / M2.5 / M2.1 / M2；含 highspeed 变体）
-if strings.Contains(modelLower, "minimax-m3") || strings.Contains(modelLower, "MiniMax-M3") {
-return s.fallbackPrices["minimax-m3"]
-}
-if strings.Contains(modelLower, "minimax-m2.7-highspeed") || strings.Contains(modelLower, "minimax-m2-7-highspeed") {
-return s.fallbackPrices["minimax-m2.7-highspeed"]
-}
-if strings.Contains(modelLower, "minimax-m2.7") || strings.Contains(modelLower, "minimax-m2-7") {
-return s.fallbackPrices["minimax-m2.7"]
-}
-if strings.Contains(modelLower, "minimax-m2.5") || strings.Contains(modelLower, "minimax-m2-5") {
-return s.fallbackPrices["minimax-m2.5"]
-}
-if strings.Contains(modelLower, "minimax-m2.1") || strings.Contains(modelLower, "minimax-m2-1") {
-return s.fallbackPrices["minimax-m2.1"]
-}
-if strings.Contains(modelLower, "minimax-m2") || strings.Contains(modelLower, "minimax-m-2") {
-return s.fallbackPrices["minimax-m2"]
-}
-
-// OpenAI（GPT-5 / Codex 族）：仅匹配已知型号，避免未知 OpenAI 型号误计价。 (feat(billing): add GLM / Kimi / MiniMax fallback pricing for Chinese LLM providers)
+	// OpenAI（GPT-5 / Codex 族）：仅匹配已知型号，避免未知 OpenAI 型号误计价。 (feat(billing): add GLM / Kimi / MiniMax fallback pricing for Chinese LLM providers)
 	if normalized := normalizeKnownOpenAICodexModel(modelLower); normalized != "" {
 		switch normalized {
 		case "gpt-5.5":
@@ -759,6 +758,7 @@ func (s *BillingService) computeTokenBreakdown(
 	inputPrice := pricing.InputPricePerToken
 	outputPrice := pricing.OutputPricePerToken
 	cacheReadPrice := pricing.CacheReadPricePerToken
+	cacheCreationMultiplier := 1.0
 	tierMultiplier := 1.0
 
 	if usePriorityServiceTierPricing(serviceTier, pricing) {
@@ -778,6 +778,13 @@ func (s *BillingService) computeTokenBreakdown(
 	if applyLongCtx && s.shouldApplySessionLongContextPricing(tokens, pricing) {
 		inputPrice *= pricing.LongContextInputMultiplier
 		outputPrice *= pricing.LongContextOutputMultiplier
+		// 缓存读取本质上是输入侧的复用，应与 input 一同应用长上下文倍率；
+		// 否则 cache hit 越多，少计的费用越多（见 #2293）。
+		cacheReadPrice *= pricing.LongContextInputMultiplier
+		// 缓存创建（cache_write）也是输入侧操作，三档价格（标准 / 5m / 1h）
+		// 都通过 computeCacheCreationCost 直接读取 pricing.*，不会经过这里
+		// 的倍率修改，因此显式向下传一个倍率，避免长上下文场景下被漏乘。
+		cacheCreationMultiplier = pricing.LongContextInputMultiplier
 	}
 
 	bd := &CostBreakdown{}
@@ -800,7 +807,7 @@ func (s *BillingService) computeTokenBreakdown(
 	}
 
 	// 缓存创建费用
-	bd.CacheCreationCost = s.computeCacheCreationCost(pricing, tokens)
+	bd.CacheCreationCost = s.computeCacheCreationCost(pricing, tokens, cacheCreationMultiplier)
 
 	bd.CacheReadCost = float64(tokens.CacheReadTokens) * cacheReadPrice
 
@@ -820,16 +827,17 @@ func (s *BillingService) computeTokenBreakdown(
 }
 
 // computeCacheCreationCost 计算缓存创建费用（支持 5m/1h 分类或标准计费）。
-func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens UsageTokens) float64 {
+// multiplier 用于长上下文等场景下的整体价格缩放（普通调用传 1.0 即可）。
+func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens UsageTokens, multiplier float64) float64 {
 	if pricing.SupportsCacheBreakdown && (pricing.CacheCreation5mPrice > 0 || pricing.CacheCreation1hPrice > 0) {
 		if tokens.CacheCreation5mTokens == 0 && tokens.CacheCreation1hTokens == 0 && tokens.CacheCreationTokens > 0 {
 			// API 未返回 ephemeral 明细，回退到全部按 5m 单价计费
-			return float64(tokens.CacheCreationTokens) * pricing.CacheCreation5mPrice
+			return float64(tokens.CacheCreationTokens) * pricing.CacheCreation5mPrice * multiplier
 		}
-		return float64(tokens.CacheCreation5mTokens)*pricing.CacheCreation5mPrice +
-			float64(tokens.CacheCreation1hTokens)*pricing.CacheCreation1hPrice
+		return float64(tokens.CacheCreation5mTokens)*pricing.CacheCreation5mPrice*multiplier +
+			float64(tokens.CacheCreation1hTokens)*pricing.CacheCreation1hPrice*multiplier
 	}
-	return float64(tokens.CacheCreationTokens) * pricing.CacheCreationPricePerToken
+	return float64(tokens.CacheCreationTokens) * pricing.CacheCreationPricePerToken * multiplier
 }
 
 // calculatePerRequestCost 按次/图片计费
