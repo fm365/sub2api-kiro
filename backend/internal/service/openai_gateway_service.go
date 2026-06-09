@@ -58,6 +58,10 @@ const (
 	codexCLIVersion                    = "0.125.0"
 	// Codex 限额快照仅用于后台展示/诊断，不需要每个成功请求都立即落库。
 	openAICodexSnapshotPersistMinInterval = 30 * time.Second
+
+	// openAIUpstreamErrorBodyReadLimit 与 Anthropic 路径的 gatewayUpstreamErrorBodyReadLimit 同值；
+	// 上游部分 cherry-pick（46bd7968a 等）依赖此常量名，保留别名避免破坏其调用方。
+	openAIUpstreamErrorBodyReadLimit int64 = 512 << 10
 )
 
 // OpenAI allowed headers whitelist (for non-passthrough).
@@ -2032,6 +2036,18 @@ func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, re
 	}
 	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
 }
+
+// handleOpenAIAccountUpstreamError 是上游 API 的兼容包装：上游 OpenAI 路径把
+// upstream-error 副作用封到 service 实例方法里（不再用 rateLimitService）。
+// 本项目 fork 仍统一走 RateLimitService.HandleUpstreamError，所以这里做一层 thin shim。
+func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte, requestedModel ...string) bool {
+	if s == nil || s.rateLimitService == nil {
+		return false
+	}
+	if len(requestedModel) > 0 {
+		return s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, headers, body, requestedModel[0])
+	}
+	return s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, headers, body)
 }
 
 // Forward forwards request to OpenAI API
