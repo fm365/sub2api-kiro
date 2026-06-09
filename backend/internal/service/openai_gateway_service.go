@@ -1991,13 +1991,47 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
 }
 
-func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, requestedModel ...string) {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+func marshalOpenAIUpstreamJSON(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	out := buf.Bytes()
+	if len(out) > 0 && out[len(out)-1] == '\n' {
+		out = out[:len(out)-1]
+	}
+	return out, nil
+}
+
+func openAIUpstreamErrorBodyReadLimitForConfig(cfg *config.Config) int64 {
+	limit := openAIUpstreamErrorBodyReadLimit
+	if cfg != nil && cfg.Gateway.LogUpstreamErrorBody && cfg.Gateway.LogUpstreamErrorBodyMaxBytes > int(limit) {
+		limit = int64(cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+	}
+	return limit
+}
+
+func (s *OpenAIGatewayService) readUpstreamErrorBody(resp *http.Response) []byte {
+	if resp == nil || resp.Body == nil {
+		return nil
+	}
+	cfg := (*config.Config)(nil)
+	if s != nil {
+		cfg = s.cfg
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, openAIUpstreamErrorBodyReadLimitForConfig(cfg)))
+	return body
+}
+
+func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, requestedModel ...string) {
 	if len(requestedModel) > 0 {
-		s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])
+		s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody, requestedModel[0])
 		return
 	}
-	s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
+	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
+}
 }
 
 // Forward forwards request to OpenAI API
@@ -2780,7 +2814,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					Detail:             upstreamDetail,
 				})
 
-				s.handleFailoverSideEffects(ctx, resp, account, upstreamModel)
+				s.handleFailoverSideEffects(ctx, resp, account, respBody, upstreamModel)
 				return nil, &UpstreamFailoverError{
 					StatusCode:             resp.StatusCode,
 					ResponseBody:           respBody,
