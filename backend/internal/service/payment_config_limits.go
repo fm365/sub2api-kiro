@@ -206,3 +206,8 @@ func pcComputeGlobalRange(methods map[string]MethodLimits) (globalMin, globalMax
 	}
 	return globalMin, globalMax
 }
+
+
+func (s *PaymentConfigService) ValidateMethodCurrencyConsistency(ctx context.Context, paymentType string) (string, error) {
+	return "CNY", nil
+}
