@@ -56,6 +56,7 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 		c.JSON(http.StatusBadGateway, gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Failed to build Kiro request"}})
 		return nil, err
 	}
+	captureKiroUpstreamRequestBody(c, upstreamReq)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -63,6 +64,7 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 	}
 	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
+		recordKiroUpstreamRequestError(c, account, upstreamReq, err)
 		c.JSON(http.StatusBadGateway, gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Kiro upstream request failed"}})
 		return nil, err
 	}
@@ -82,8 +84,10 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 			c.JSON(http.StatusBadGateway, gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Failed to build Kiro request"}})
 			return nil, err
 		}
+		captureKiroUpstreamRequestBody(c, upstreamReq)
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 		if err != nil {
+			recordKiroUpstreamRequestError(c, account, upstreamReq, err)
 			c.JSON(http.StatusBadGateway, gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Kiro upstream request failed"}})
 			return nil, err
 		}
@@ -92,11 +96,12 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		upstreamStatus := normalizeKiroUpstreamStatus(resp.StatusCode, body)
+		recordKiroUpstreamHTTPError(c, s, account, upstreamReq, resp, upstreamStatus, body)
 		if isKiroContextLimit(resp.StatusCode, body) {
 			c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": "prompt is too long: 200001 tokens > 200000 maximum"}})
 			return nil, fmt.Errorf("kiro context limit exceeded")
 		}
-		upstreamStatus := normalizeKiroUpstreamStatus(resp.StatusCode, body)
 		if s.shouldFailoverUpstreamError(upstreamStatus) {
 			return nil, &UpstreamFailoverError{StatusCode: upstreamStatus, ResponseBody: body}
 		}
@@ -141,10 +146,7 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 		Role:       "assistant",
 		Model:      originalModel,
 		StopReason: defaultString(kiroResp.StopReason, "end_turn"),
-		Content: []apicompat.AnthropicContentBlock{{
-			Type: "text",
-			Text: kiroResp.Content,
-		}},
+		Content:    kiroBlocksToAnthropicContent(kiroResp),
 		Usage: apicompat.AnthropicUsage{
 			InputTokens:  usage.InputTokens,
 			OutputTokens: usage.OutputTokens,
@@ -205,6 +207,7 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 	blockIndex := 0
 	currentBlockType := "text"
 	currentToolUseID := ""
+	currentToolInput := ""
 	toolUseSeen := false
 	toolBlockOpen := true
 	textBlockOpen := true
@@ -215,6 +218,7 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 		blockIndex++
 		currentBlockType = "tool"
 		currentToolUseID = tool.ToolUseID
+		currentToolInput = kiro.NormalizeToolInputChunk("", tool.Input)
 		toolBlockOpen = true
 		toolUseSeen = true
 		return write("content_block_start", gin.H{
@@ -232,6 +236,7 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 		blockIndex++
 		currentBlockType = "text"
 		currentToolUseID = ""
+		currentToolInput = ""
 		textBlockOpen = true
 		return write("content_block_start", gin.H{
 			"type":  "content_block_start",
@@ -244,6 +249,16 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 	}
 	stopCurrentBlock := func() bool {
 		if currentBlockType == "tool" && toolBlockOpen {
+			if currentToolInput != "" {
+				if write("content_block_delta", gin.H{
+					"type":  "content_block_delta",
+					"index": blockIndex,
+					"delta": gin.H{"type": "input_json_delta", "partial_json": currentToolInput},
+				}) {
+					return true
+				}
+				currentToolInput = ""
+			}
 			if write("content_block_stop", gin.H{"type": "content_block_stop", "index": blockIndex}) {
 				return true
 			}
@@ -257,6 +272,7 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 		}
 		currentBlockType = ""
 		currentToolUseID = ""
+		currentToolInput = ""
 		return false
 	}
 	handleEvent := func(event kiro.StreamEvent) bool {
@@ -299,21 +315,12 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 				}
 			}
 			if event.ToolUse.Input != "" {
-				if write("content_block_delta", gin.H{
-					"type":  "content_block_delta",
-					"index": blockIndex,
-					"delta": gin.H{"type": "input_json_delta", "partial_json": event.ToolUse.Input},
-				}) {
-					return true
-				}
+				currentToolInput = kiro.NormalizeToolInputChunk(currentToolInput, event.ToolUse.Input)
 			}
 			if event.ToolUse.Stop {
-				if write("content_block_stop", gin.H{"type": "content_block_stop", "index": blockIndex}) {
+				if stopCurrentBlock() {
 					return true
 				}
-				toolBlockOpen = false
-				currentBlockType = ""
-				currentToolUseID = ""
 			}
 			return false
 		case "toolUseInput":
@@ -323,22 +330,13 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 			if currentBlockType != "tool" || !toolBlockOpen {
 				return false
 			}
-			return write("content_block_delta", gin.H{
-				"type":  "content_block_delta",
-				"index": blockIndex,
-				"delta": gin.H{"type": "input_json_delta", "partial_json": event.Input},
-			})
+			currentToolInput = kiro.NormalizeToolInputChunk(currentToolInput, event.Input)
+			return false
 		case "toolUseStop":
 			if currentBlockType != "tool" || !toolBlockOpen {
 				return false
 			}
-			if write("content_block_stop", gin.H{"type": "content_block_stop", "index": blockIndex}) {
-				return true
-			}
-			toolBlockOpen = false
-			currentBlockType = ""
-			currentToolUseID = ""
-			return false
+			return stopCurrentBlock()
 		case "contextUsage":
 			return false
 		default:
@@ -469,6 +467,119 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 	_ = write("message_stop", gin.H{"type": "message_stop"})
 	_ = contentBuilder
 	return usage, firstTokenMs, false, nil
+}
+
+func kiroBlocksToAnthropicContent(resp kiro.Response) []apicompat.AnthropicContentBlock {
+	if len(resp.Blocks) == 0 {
+		return []apicompat.AnthropicContentBlock{{Type: "text", Text: resp.Content}}
+	}
+	out := make([]apicompat.AnthropicContentBlock, 0, len(resp.Blocks))
+	for _, block := range resp.Blocks {
+		switch block.Type {
+		case "text":
+			if block.Text != "" {
+				out = append(out, apicompat.AnthropicContentBlock{Type: "text", Text: block.Text})
+			}
+		case "tool_use":
+			input := json.RawMessage(`{}`)
+			if rawInput := strings.TrimSpace(block.Input); rawInput != "" {
+				if json.Valid([]byte(rawInput)) {
+					input = json.RawMessage(rawInput)
+				} else if fallback, err := json.Marshal(map[string]string{"raw_input": rawInput}); err == nil {
+					input = json.RawMessage(fallback)
+				}
+			}
+			out = append(out, apicompat.AnthropicContentBlock{
+				Type:  "tool_use",
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: input,
+			})
+		}
+	}
+	if len(out) == 0 {
+		return []apicompat.AnthropicContentBlock{{Type: "text", Text: resp.Content}}
+	}
+	return out
+}
+
+func captureKiroUpstreamRequestBody(c *gin.Context, req *http.Request) {
+	if c == nil || req == nil || req.Body == nil {
+		return
+	}
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return
+	}
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.ContentLength = int64(len(body))
+	setOpsUpstreamRequestBody(c, body)
+}
+
+func recordKiroUpstreamRequestError(c *gin.Context, account *Account, req *http.Request, err error) {
+	if err == nil {
+		return
+	}
+	safeErr := sanitizeUpstreamErrorMessage(err.Error())
+	setOpsUpstreamError(c, 0, safeErr, "")
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:           PlatformKiro,
+		AccountID:          accountIDForOps(account),
+		AccountName:        accountNameForOps(account),
+		UpstreamStatusCode: 0,
+		UpstreamURL:        kiroSafeRequestURL(req),
+		Kind:               "request_error",
+		Message:            safeErr,
+	})
+}
+
+func recordKiroUpstreamHTTPError(c *gin.Context, s *GatewayService, account *Account, req *http.Request, resp *http.Response, upstreamStatus int, body []byte) {
+	if resp == nil {
+		return
+	}
+	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	if upstreamMsg == "" {
+		upstreamMsg = fmt.Sprintf("kiro upstream error: %d", upstreamStatus)
+	}
+	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+	upstreamDetail := ""
+	if s != nil && s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+		upstreamDetail = truncateString(string(body), maxBytes)
+	}
+	setOpsUpstreamError(c, upstreamStatus, upstreamMsg, upstreamDetail)
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:           PlatformKiro,
+		AccountID:          accountIDForOps(account),
+		AccountName:        accountNameForOps(account),
+		UpstreamStatusCode: resp.StatusCode,
+		UpstreamRequestID:  kiroRequestID(resp),
+		UpstreamURL:        kiroSafeRequestURL(req),
+		Kind:               "http_error",
+		Message:            upstreamMsg,
+		Detail:             upstreamDetail,
+	})
+}
+
+func accountIDForOps(account *Account) int64 {
+	if account == nil {
+		return 0
+	}
+	return account.ID
+}
+
+func accountNameForOps(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	return account.Name
+}
+
+func kiroSafeRequestURL(req *http.Request) string {
+	if req == nil || req.URL == nil {
+		return ""
+	}
+	return safeUpstreamURL(req.URL.String())
 }
 
 func isKiroEventStreamResponse(header http.Header) bool {
@@ -636,7 +747,7 @@ func kiroRequestID(resp *http.Response) string {
 	if resp == nil {
 		return "generated:" + generateRequestID()
 	}
-	for _, key := range []string{"x-amzn-requestid", "x-amzn-request-id", "x-request-id"} {
+	for _, key := range []string{"x-amzn-requestid", "x-amzn-request-id", "X-Amzn-Requestid", "X-Amzn-Request-Id", "x-request-id"} {
 		if v := strings.TrimSpace(resp.Header.Get(key)); v != "" {
 			return v
 		}
