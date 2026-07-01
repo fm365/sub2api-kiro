@@ -104,26 +104,62 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		upstreamStatus := normalizeKiroUpstreamStatus(resp.StatusCode, body)
 		recordKiroUpstreamHTTPError(c, s, account, upstreamReq, resp, upstreamStatus, body)
-		if isKiroContextLimit(resp.StatusCode, body) {
-			c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": "prompt is too long: 200001 tokens > 200000 maximum"}})
-			return nil, fmt.Errorf("kiro context limit exceeded")
-		}
-		if s.shouldFailoverUpstreamError(upstreamStatus) {
-			return nil, &UpstreamFailoverError{StatusCode: upstreamStatus, ResponseBody: body}
-		}
-		if upstreamStatus == http.StatusTooManyRequests {
-			c.JSON(http.StatusTooManyRequests, gin.H{"type": "error", "error": gin.H{"type": "rate_limit_error", "message": "Upstream rate limit exceeded, please retry later"}})
+		if retryResp, retryModel, retryOK := s.retryKiroWithoutToolsOnFail(ctx, c, account, client, req, proxyURL, resp.StatusCode); retryOK {
+			resp = retryResp
+			upstreamModel = retryModel
+			c.Header("X-Kiro-Tools-Stripped", "true")
+		} else {
+			if isKiroContextLimit(resp.StatusCode, body) {
+				c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": "prompt is too long: 200001 tokens > 200000 maximum"}})
+				return nil, fmt.Errorf("kiro context limit exceeded")
+			}
+			if s.shouldFailoverUpstreamError(upstreamStatus) {
+				return nil, &UpstreamFailoverError{StatusCode: upstreamStatus, ResponseBody: body}
+			}
+			if upstreamStatus == http.StatusTooManyRequests {
+				c.JSON(http.StatusTooManyRequests, gin.H{"type": "error", "error": gin.H{"type": "rate_limit_error", "message": "Upstream rate limit exceeded, please retry later"}})
+				return nil, fmt.Errorf("kiro upstream error: %d", upstreamStatus)
+			}
+			c.JSON(mapUpstreamStatusCode(upstreamStatus), gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Kiro upstream request failed"}})
 			return nil, fmt.Errorf("kiro upstream error: %d", upstreamStatus)
 		}
-		c.JSON(mapUpstreamStatusCode(upstreamStatus), gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Kiro upstream request failed"}})
-		return nil, fmt.Errorf("kiro upstream error: %d", upstreamStatus)
 	}
 
-	if parsed.OnUpstreamAccepted != nil {
+	return s.writeKiroSuccessResponse(ctx, c, resp, req.Stream, originalModel, upstreamModel, startTime, parsed)
+}
+
+func (s *GatewayService) retryKiroWithoutToolsOnFail(ctx context.Context, c *gin.Context, account *Account, client *kiro.Client, req kiro.Request, proxyURL string, statusCode int) (*http.Response, string, bool) {
+	if account == nil || client == nil || statusCode != http.StatusBadRequest || !account.IsKiroStripToolsOnFailEnabled() || len(req.Tools) == 0 {
+		return nil, "", false
+	}
+	retryReq := req
+	retryReq.Tools = nil
+	upstreamReq, upstreamModel, err := client.BuildHTTPRequest(ctx, retryReq)
+	if err != nil {
+		return nil, "", false
+	}
+	captureKiroUpstreamRequestBody(c, upstreamReq)
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	if err != nil {
+		recordKiroUpstreamRequestError(c, account, upstreamReq, err)
+		return nil, "", false
+	}
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		upstreamStatus := normalizeKiroUpstreamStatus(resp.StatusCode, body)
+		recordKiroUpstreamHTTPError(c, s, account, upstreamReq, resp, upstreamStatus, body)
+		_ = resp.Body.Close()
+		return nil, "", false
+	}
+	return resp, upstreamModel, true
+}
+
+func (s *GatewayService) writeKiroSuccessResponse(ctx context.Context, c *gin.Context, resp *http.Response, stream bool, originalModel, upstreamModel string, startTime time.Time, parsed *ParsedRequest) (*ForwardResult, error) {
+	if parsed != nil && parsed.OnUpstreamAccepted != nil {
 		parsed.OnUpstreamAccepted()
 	}
 
-	if req.Stream {
+	if stream {
 		usage, firstTokenMs, clientDisconnect, err := s.handleKiroClaudeStream(ctx, c, resp, originalModel, startTime)
 		if err != nil {
 			return nil, err

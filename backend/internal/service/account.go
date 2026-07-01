@@ -1365,6 +1365,17 @@ func (a *Account) IsKiroPassthroughEnabled() bool {
 	return a.getExtraBool("kiro_passthrough")
 }
 
+// IsKiroStripToolsOnFailEnabled 返回 Kiro 账号是否在上游拒绝带 tools 请求时启用剥离 tools 并重试。
+//
+// 字段：accounts.extra.kiro_strip_tools_on_fail。
+// 字段缺失或类型不正确时，按 false（关闭）处理。
+func (a *Account) IsKiroStripToolsOnFailEnabled() bool {
+	if a == nil || a.Platform != PlatformKiro {
+		return false
+	}
+	return a.getExtraBool("kiro_strip_tools_on_fail")
+}
+
 // IsAnthropicAPIKeyPassthroughEnabled 返回 Anthropic API Key 账号是否启用"自动透传（仅替换认证）"。
 // 字段：accounts.extra.anthropic_passthrough。
 // 字段缺失或类型不正确时，按 false（关闭）处理。

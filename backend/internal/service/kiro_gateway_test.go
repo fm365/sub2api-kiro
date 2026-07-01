@@ -1,7 +1,10 @@
 package service
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +13,54 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
+
+type kiroHTTPUpstreamRecorder struct {
+	callCount int
+	bodies    [][]byte
+	requests  []*http.Request
+	responses []*http.Response
+	errors    []error
+}
+
+func (r *kiroHTTPUpstreamRecorder) addResponse(statusCode int, header http.Header, body string) {
+	if header == nil {
+		header = http.Header{}
+	}
+	r.responses = append(r.responses, &http.Response{
+		StatusCode: statusCode,
+		Header:     header,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	})
+}
+
+func (r *kiroHTTPUpstreamRecorder) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	return r.DoWithTLS(req, proxyURL, accountID, accountConcurrency, nil)
+}
+
+func (r *kiroHTTPUpstreamRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+	r.callCount++
+	r.requests = append(r.requests, req)
+	body, _ := io.ReadAll(req.Body)
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	r.bodies = append(r.bodies, body)
+
+	if len(r.errors) > 0 {
+		err := r.errors[0]
+		r.errors = r.errors[1:]
+		return nil, err
+	}
+	if len(r.responses) > 0 {
+		resp := r.responses[0]
+		r.responses = r.responses[1:]
+		return resp, nil
+	}
+	return nil, errors.New("no response or error configured")
+}
 
 func TestNormalizeKiroUpstreamStatusTreatsCapacity400AsRateLimit(t *testing.T) {
 	body := []byte(`{"__type":"com.amazon.aws.codewhisperer#ThrottlingException","message":"I am experiencing high traffic, please try again shortly.","reason":"INSUFFICIENT_MODEL_CAPACITY"}`)
@@ -137,6 +186,78 @@ func TestHandleKiroClaudeStreamEmitsClaudeCodeToolUseEvents(t *testing.T) {
 			t.Fatalf("stream output missing %q: %s", want, body)
 		}
 	}
+}
+
+func TestForwardKiroStripToolsOnFailRetriesWithoutTools(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &kiroHTTPUpstreamRecorder{}
+	upstream.addResponse(http.StatusBadRequest, nil, `{"message":"validation error"}`)
+	upstream.addResponse(http.StatusOK, nil, `{"content":"pong"}`)
+
+	svc := &GatewayService{httpUpstream: upstream}
+	account := &Account{
+		ID:       1,
+		Platform: PlatformKiro,
+		Extra:    map[string]any{"kiro_strip_tools_on_fail": true},
+		Credentials: map[string]any{
+			"access_token": "fake-token",
+			"region":       kiro.DefaultRegion,
+			"model_mapping": map[string]any{
+				"claude-opus-4-7": "claude-opus-4.7",
+			},
+		},
+	}
+	parsed, err := ParseGatewayRequest([]byte(`{
+		"model":"claude-opus-4-7",
+		"messages":[{"role":"user","content":"hi"}],
+		"tools":[{"name":"Bash","description":"Run shell commands","input_schema":{"type":"object"}}]
+	}`), "")
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	result, err := svc.forwardKiro(context.Background(), c, account, parsed, testKiroStartTime())
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "true", w.Header().Get("X-Kiro-Tools-Stripped"))
+	require.Contains(t, w.Body.String(), `"text":"pong"`)
+	require.Equal(t, 2, upstream.callCount)
+	require.True(t, gjson.GetBytes(upstream.bodies[0], "conversationState.currentMessage.userInputMessage.userInputMessageContext.tools").Exists())
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "conversationState.currentMessage.userInputMessage.userInputMessageContext.tools").Exists())
+}
+
+func TestForwardKiroStripToolsOnFailDisabledByDefault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &kiroHTTPUpstreamRecorder{}
+	upstream.addResponse(http.StatusBadRequest, nil, `{"message":"validation error"}`)
+
+	svc := &GatewayService{httpUpstream: upstream}
+	account := &Account{
+		ID:       1,
+		Platform: PlatformKiro,
+		Credentials: map[string]any{
+			"access_token":  "fake-token",
+			"region":        kiro.DefaultRegion,
+			"model_mapping": map[string]any{"claude-opus-4-7": "claude-opus-4.7"},
+		},
+	}
+	parsed, err := ParseGatewayRequest([]byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}],"tools":[{"name":"Bash","input_schema":{"type":"object"}}]}`), "")
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err = svc.forwardKiro(context.Background(), c, account, parsed, testKiroStartTime())
+
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Empty(t, w.Header().Get("X-Kiro-Tools-Stripped"))
+	require.Equal(t, 1, upstream.callCount)
 }
 
 func testKiroStartTime() time.Time { return time.Now().Add(-10 * time.Millisecond) }
