@@ -60,3 +60,32 @@ func writeKiroTestHeader(buf *bytes.Buffer, name, value string) {
 	_ = binary.Write(buf, binary.BigEndian, uint16(len(value)))
 	_, _ = buf.WriteString(value)
 }
+
+func TestParseNonStreamingResponse_EventStreamToolUseBlocks(t *testing.T) {
+	body := append(kiroTestEventStreamFrame("assistantResponseEvent", []byte(`{"content":"Let me inspect."}`)),
+		kiroTestEventStreamFrame("assistantResponseEvent", []byte(`{"name":"Bash","toolUseId":"toolu_1","input":{"command":"pwd"}}`))...)
+	body = append(body, kiroTestEventStreamFrame("assistantResponseEvent", []byte(`{"input":"{\"cwd\":\"/tmp/repo\"}"}`))...)
+	body = append(body, kiroTestEventStreamFrame("assistantResponseEvent", []byte(`{"stop":true}`))...)
+	body = append(body, kiroTestEventStreamFrame("assistantResponseEvent", []byte(`{"content":"Done."}`))...)
+
+	resp := ParseNonStreamingResponse(body)
+	if resp.StopReason != "tool_use" {
+		t.Fatalf("StopReason = %q, want tool_use", resp.StopReason)
+	}
+	if resp.Content != "Let me inspect.Done." {
+		t.Fatalf("Content = %q, want text-only content", resp.Content)
+	}
+	if len(resp.Blocks) != 3 {
+		t.Fatalf("Blocks len = %d, want 3: %#v", len(resp.Blocks), resp.Blocks)
+	}
+	if resp.Blocks[0].Type != "text" || resp.Blocks[0].Text != "Let me inspect." {
+		t.Fatalf("unexpected first block: %#v", resp.Blocks[0])
+	}
+	tool := resp.Blocks[1]
+	if tool.Type != "tool_use" || tool.ID != "toolu_1" || tool.Name != "Bash" || tool.Input != `{"command":"pwd","cwd":"/tmp/repo"}` {
+		t.Fatalf("unexpected tool block: %#v", tool)
+	}
+	if resp.Blocks[2].Type != "text" || resp.Blocks[2].Text != "Done." {
+		t.Fatalf("unexpected last block: %#v", resp.Blocks[2])
+	}
+}
