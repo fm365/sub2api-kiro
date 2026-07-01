@@ -20,6 +20,13 @@ type Credentials struct {
 	Provider              string `json:"provider,omitempty"`
 	StartURL              string `json:"start_url,omitempty"`
 	SSORegion             string `json:"sso_region,omitempty"`
+	CSRFToken             string `json:"csrf_token,omitempty"`
+	UserID                string `json:"user_id,omitempty"`
+	VisitorID             string `json:"visitor_id,omitempty"`
+	WebSessionID          string `json:"web_session_id,omitempty"`
+	WebSpaceID            string `json:"web_space_id,omitempty"`
+	WebAgentMode          string `json:"web_agent_mode,omitempty"`
+	WebCookie             string `json:"web_cookie,omitempty"`
 }
 
 type Message struct {

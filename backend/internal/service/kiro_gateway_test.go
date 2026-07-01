@@ -188,6 +188,49 @@ func TestHandleKiroClaudeStreamEmitsClaudeCodeToolUseEvents(t *testing.T) {
 	}
 }
 
+func TestForwardKiroWebPortalBuildsCBORRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &kiroHTTPUpstreamRecorder{}
+	upstream.addResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}}, `{"content":"pong"}`)
+
+	svc := &GatewayService{httpUpstream: upstream}
+	account := &Account{
+		ID:       1,
+		Platform: PlatformKiro,
+		Extra:    map[string]any{"kiro_web_portal": true},
+		Credentials: map[string]any{
+			"access_token":   "fake-token",
+			"profile_arn":    "arn:aws:codewhisperer:us-east-1:123:profile/example",
+			"csrf_token":     "csrf",
+			"user_id":        "user-1",
+			"visitor_id":     "visitor-1",
+			"web_session_id": "session-1",
+			"web_space_id":   "space-1",
+			"web_agent_mode": "VIBE",
+			"model_mapping": map[string]any{
+				"claude-opus-4-7": "claude-opus-4.7",
+			},
+		},
+	}
+	parsed, err := ParseGatewayRequest([]byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`), "")
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	result, err := svc.forwardKiro(context.Background(), c, account, parsed, testKiroStartTime())
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1, upstream.callCount)
+	require.Equal(t, kiro.WebPortalStreamURL, upstream.requests[0].URL.String())
+	require.Equal(t, "application/cbor", upstream.requests[0].Header.Get("Content-Type"))
+	require.Equal(t, "rpc-v2-cbor", upstream.requests[0].Header.Get("Smithy-Protocol"))
+	require.Equal(t, "csrf", upstream.requests[0].Header.Get("x-csrf-token"))
+}
+
 func TestForwardKiroStripToolsOnFailRetriesWithoutTools(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &kiroHTTPUpstreamRecorder{}

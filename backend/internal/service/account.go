@@ -1365,6 +1365,13 @@ func (a *Account) IsKiroPassthroughEnabled() bool {
 	return a.getExtraBool("kiro_passthrough")
 }
 
+func (a *Account) IsKiroWebPortalEnabled() bool {
+	if a == nil || a.Platform != PlatformKiro {
+		return false
+	}
+	return a.getExtraBool("kiro_web_portal")
+}
+
 // IsKiroStripToolsOnFailEnabled 返回 Kiro 账号是否在上游拒绝带 tools 请求时启用剥离 tools 并重试。
 //
 // 字段：accounts.extra.kiro_strip_tools_on_fail。

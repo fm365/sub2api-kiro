@@ -77,6 +77,25 @@ func TestKiroRequestFromPassthroughKeepsFields(t *testing.T) {
 	require.JSONEq(t, `{"type":"object"}`, string(req.Tools[0].InputSchema))
 }
 
+func TestAccount_IsKiroWebPortalEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		acct *Account
+		want bool
+	}{
+		{name: "enabled for kiro account", acct: &Account{Platform: PlatformKiro, Extra: map[string]any{"kiro_web_portal": true}}, want: true},
+		{name: "disabled by default", acct: &Account{Platform: PlatformKiro, Extra: map[string]any{}}, want: false},
+		{name: "disabled for non bool", acct: &Account{Platform: PlatformKiro, Extra: map[string]any{"kiro_web_portal": "true"}}, want: false},
+		{name: "disabled for non kiro", acct: &Account{Platform: PlatformOpenAI, Extra: map[string]any{"kiro_web_portal": true}}, want: false},
+		{name: "disabled for nil", acct: nil, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.acct.IsKiroWebPortalEnabled())
+		})
+	}
+}
+
 func TestAccount_IsKiroStripToolsOnFailEnabled(t *testing.T) {
 	tests := []struct {
 		name string

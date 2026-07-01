@@ -11,6 +11,7 @@ const (
 	RefreshURLTemplate          = "https://prod.%s.auth.desktop.kiro.dev/refreshToken"
 	CodeWhispererURLTmpl        = "https://codewhisperer.%s.amazonaws.com/generateAssistantResponse"
 	AmazonQURLTmpl              = "https://codewhisperer.%s.amazonaws.com/SendMessageStreaming"
+	WebPortalStreamURL          = "https://app.kiro.dev/service/KiroWebPortalService/operation/StreamSendMessage"
 	UsageLimitsURLTemplate      = "https://q.%s.amazonaws.com/getUsageLimits"
 	BuilderIDStartURL           = "https://view.awsapps.com/start"
 
@@ -47,7 +48,7 @@ var Models = []string{
 }
 
 var ModelMapping = map[string]string{
-	"claude-opus-4-7":            "claude-opus-4.7"
+	"claude-opus-4-7":            "claude-opus-4.7",
 	"claude-opus-4-7-thinking":   "claude-opus-4.7",
 	"claude-opus-4-6":            "claude-opus-4.6",
 	"claude-opus-4-6-thinking":   "claude-opus-4.6",

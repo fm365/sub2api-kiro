@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ugorji/go/codec"
 )
 
 type Client struct {
@@ -231,6 +232,67 @@ func (c *Client) BuildRequestBody(req Request) (map[string]any, string) {
 		body["profileArn"] = c.creds.ProfileARN
 	}
 	return body, modelID
+}
+
+func (c *Client) BuildWebPortalStreamRequest(ctx context.Context, req Request) (*http.Request, string, error) {
+	modelID := MapModel(req.Model)
+	content := currentMessageText(req.Messages)
+	if strings.TrimSpace(content) == "" {
+		content = "Continue"
+	}
+	sessionID := firstNonEmpty(c.creds.WebSessionID, c.creds.UUID, uuid.NewString())
+	spaceID := firstNonEmpty(c.creds.WebSpaceID, sessionID)
+	agentMode := firstNonEmpty(c.creds.WebAgentMode, "VIBE")
+	body := map[string]any{
+		"spaceId":   spaceID,
+		"sessionId": sessionID,
+		"contentBlocks": []any{
+			map[string]any{"text": map[string]any{"text": content}},
+		},
+		"modelId":    modelID,
+		"csrfToken":  c.creds.CSRFToken,
+		"agentMode":  agentMode,
+		"profileArn": c.creds.ProfileARN,
+	}
+	var payload bytes.Buffer
+	var handle codec.CborHandle
+	if err := codec.NewEncoder(&payload, &handle).Encode(body); err != nil {
+		return nil, "", err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, WebPortalStreamURL, bytes.NewReader(payload.Bytes()))
+	if err != nil {
+		return nil, "", err
+	}
+	httpReq.Header.Set("Accept", "application/cbor")
+	httpReq.Header.Set("Content-Type", "application/cbor")
+	httpReq.Header.Set("Smithy-Protocol", "rpc-v2-cbor")
+	httpReq.Header.Set("Authorization", "Bearer "+c.creds.AccessToken)
+	httpReq.Header.Set("amz-sdk-invocation-id", uuid.NewString())
+	httpReq.Header.Set("amz-sdk-request", "attempt=1; max=1")
+	httpReq.Header.Set("x-amz-user-agent", "aws-sdk-js/1.0.0 ua/2.1 os/"+runtime.GOOS+" lang/js md/browser#sub2api m/N,M,E")
+	httpReq.Header.Set("Origin", "https://app.kiro.dev")
+	httpReq.Header.Set("Referer", "https://app.kiro.dev/session/"+sessionID)
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36")
+	if c.creds.CSRFToken != "" {
+		httpReq.Header.Set("x-csrf-token", c.creds.CSRFToken)
+	}
+	if c.creds.UserID != "" {
+		httpReq.Header.Set("x-kiro-userid", c.creds.UserID)
+	}
+	if c.creds.VisitorID != "" {
+		httpReq.Header.Set("x-kiro-visitorid", c.creds.VisitorID)
+	}
+	if c.creds.WebCookie != "" {
+		httpReq.Header.Set("Cookie", c.creds.WebCookie)
+	}
+	return httpReq, modelID, nil
+}
+
+func currentMessageText(messages []Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	return contentText(messages[len(messages)-1].Content)
 }
 
 func (c *Client) BuildHTTPRequest(ctx context.Context, req Request) (*http.Request, string, error) {

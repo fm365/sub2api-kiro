@@ -3,8 +3,12 @@ package kiro
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"hash/crc32"
+	"strings"
 	"testing"
+
+	"github.com/ugorji/go/codec"
 )
 
 func TestParseNonStreamingResponse_EventStream(t *testing.T) {
@@ -88,4 +92,72 @@ func TestParseNonStreamingResponse_EventStreamToolUseBlocks(t *testing.T) {
 	if resp.Blocks[2].Type != "text" || resp.Blocks[2].Text != "Done." {
 		t.Fatalf("unexpected last block: %#v", resp.Blocks[2])
 	}
+}
+
+func TestParseNonStreamingResponse_WebPortalCBOREventStream(t *testing.T) {
+	body := append(kiroTestWebPortalFrame("agent_message_chunk", map[string]any{
+		"text":    "Still",
+		"content": map[string]any{"type": "text", "text": "Still"},
+	}), kiroTestWebPortalFrame("agent_message_chunk", map[string]any{
+		"text":    " here!",
+		"content": map[string]any{"type": "text", "text": " here!"},
+	})...)
+
+	resp := ParseNonStreamingResponse(body)
+	if resp.Content != "Still here!" {
+		t.Fatalf("content = %q, want %q", resp.Content, "Still here!")
+	}
+	if len(resp.Blocks) != 1 || resp.Blocks[0].Text != "Still here!" {
+		t.Fatalf("unexpected blocks: %#v", resp.Blocks)
+	}
+}
+
+func kiroTestWebPortalFrame(eventType string, payload any) []byte {
+	payloadJSON, _ := jsonMarshalForTest(payload)
+	var cborPayload bytes.Buffer
+	var handle codec.CborHandle
+	_ = codec.NewEncoder(&cborPayload, &handle).Encode(map[string]any{
+		"eventType": eventType,
+		"payload":   string(payloadJSON),
+	})
+	return kiroTestEventStreamFrame(eventType, cborPayload.Bytes())
+}
+
+func jsonMarshalForTest(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	err := enc.Encode(v)
+	return bytes.TrimSpace(buf.Bytes()), err
+}
+
+func TestParseNonStreamingResponse_WebPortalCBORToolUse(t *testing.T) {
+	body := append(kiroTestWebPortalFrame("tool_use_start", map[string]any{
+		"name":      "Bash",
+		"toolUseId": "toolu_test_1",
+		"input":     map[string]any{"command": "pwd"},
+	}), kiroTestWebPortalFrame("tool_use_input_chunk", map[string]any{
+		"input": map[string]any{"cwd": "/tmp/repo"},
+	})...)
+	body = append(body, kiroTestWebPortalFrame("tool_use_stop", map[string]any{
+		"stop": true,
+	})...)
+	body = append(body, kiroTestWebPortalFrame("agent_message_chunk", map[string]any{
+		"text": "Done.",
+	})...)
+
+	resp := ParseNonStreamingResponse(body)
+	if resp.StopReason != "tool_use" {
+		t.Fatalf("StopReason = %q, want tool_use", resp.StopReason)
+	}
+	if len(resp.Blocks) != 2 {
+		t.Fatalf("Blocks len = %d, want 2: %#v", len(resp.Blocks), resp.Blocks)
+	}
+	tool := resp.Blocks[0]
+	if tool.Type != "tool_use" || tool.ID != "toolu_test_1" || tool.Name != "Bash" {
+		t.Fatalf("unexpected tool block: %#v", tool)
+	}
+	if !strings.Contains(tool.Input, "command") && !strings.Contains(tool.Input, "cwd") {
+		t.Fatalf("unexpected tool input: %q", tool.Input)
+	}
+
 }

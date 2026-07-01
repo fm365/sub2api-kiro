@@ -9,6 +9,8 @@ import (
 	"hash/crc32"
 	"io"
 	"strings"
+
+	"github.com/ugorji/go/codec"
 )
 
 func ParseNonStreamingResponse(body []byte) Response {
@@ -160,7 +162,7 @@ func (d *EventStreamDecoder) Decode() (StreamEvent, error) {
 		if err != nil {
 			return StreamEvent{}, err
 		}
-		if event, ok := parseEventObject(string(payload)); ok {
+		if event, ok := parseEventPayload(payload); ok {
 			return event, nil
 		}
 	}
@@ -236,6 +238,156 @@ func ParseEventStreamBytes(body []byte) []StreamEvent {
 	}
 	events, _ := ParseEventStreamBuffer(string(body))
 	return events
+}
+
+func parseEventPayload(payload []byte) (StreamEvent, bool) {
+	if event, ok := parseEventObject(string(payload)); ok {
+		return event, true
+	}
+	return parseWebPortalCBOREvent(payload)
+}
+
+func parseWebPortalCBOREvent(payload []byte) (StreamEvent, bool) {
+	var obj any
+	var handle codec.CborHandle
+	if err := codec.NewDecoderBytes(payload, &handle).Decode(&obj); err != nil {
+		return StreamEvent{}, false
+	}
+	eventType := eventStringFromAny(mapLookup(obj, "eventType"))
+	if eventType == "" {
+		eventType = eventStringFromAny(mapLookup(obj, "event_type"))
+	}
+	rawPayload := mapLookup(obj, "payload")
+	if rawPayload == nil {
+		return StreamEvent{}, false
+	}
+	return parseWebPortalPayload(eventType, rawPayload)
+}
+
+func parseWebPortalPayload(eventType string, raw any) (StreamEvent, bool) {
+	var payload any
+	switch v := raw.(type) {
+	case string:
+		if err := json.Unmarshal([]byte(v), &payload); err != nil {
+			payload = v
+		}
+	case []byte:
+		if err := json.Unmarshal(v, &payload); err != nil {
+			payload = string(v)
+		}
+	default:
+		payload = v
+	}
+
+	name := eventStringFromAny(mapLookup(payload, "name"))
+	toolID := eventStringFromAny(mapLookup(payload, "toolUseId"))
+	if toolID == "" {
+		toolID = eventStringFromAny(mapLookup(payload, "tool_use_id"))
+	}
+	if name != "" {
+		raw := mapLookup(payload, "input")
+		input := toolInputString(raw)
+		if raw != nil {
+			if b, err := cborMapToJSONBytes(raw); err == nil {
+				input = string(b)
+			}
+		}
+		stop := false
+		if s, ok := mapLookup(payload, "stop").(bool); ok {
+			stop = s
+		}
+		return StreamEvent{Type: "toolUse", ToolUse: &ToolUse{ToolUseID: toolID, Name: name, Input: input, Stop: stop}}, true
+	}
+	text := eventStringFromAny(mapLookup(payload, "text"))
+	if text == "" {
+		text = eventStringFromAny(mapLookup(mapLookup(payload, "content"), "text"))
+	}
+	if text != "" && (eventType == "" || strings.Contains(eventType, "message_chunk") || strings.Contains(eventType, "agent_message")) {
+		return StreamEvent{Type: "content", Content: text}, true
+	}
+	return StreamEvent{}, false
+}
+
+func mapLookup(obj any, key string) any {
+	switch m := obj.(type) {
+	case map[string]any:
+		return m[key]
+	}
+	if m, ok := obj.(map[any]any); ok {
+		return m[key]
+	}
+	if m, ok := obj.(map[interface{}]interface{}); ok {
+		return m[key]
+	}
+	return nil
+}
+
+// nestedMap walks into nested CBOR-style maps and returns the key lookup
+// value. The ugorji codec library can decode CBOR maps as either
+// map[string]any or map[any]any depending on key types, so we recurse to
+// support all variants.
+func nestedMapLookup(obj any, keys ...string) (any, bool) {
+	cur := obj
+	for _, k := range keys {
+		v, ok := lookupMapKey(cur, k)
+		if !ok {
+			return nil, false
+		}
+		cur = v
+	}
+	return cur, true
+}
+
+func lookupMapKey(obj any, key string) (any, bool) {
+	switch m := obj.(type) {
+	case map[string]any:
+		v, ok := m[key]
+		return v, ok
+	case map[any]any:
+		v, ok := m[key]
+		return v, ok
+	default:
+		return nil, false
+	}
+}
+
+func eventStringFromAny(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	}
+	return ""
+}
+
+func toolInputString(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case []byte:
+		return string(x)
+	default:
+		if b, err := json.Marshal(x); err == nil {
+			return string(b)
+		}
+		return ""
+	}
+}
+
+// cborMapToJSONBytes re-encodes arbitrary decoded CBOR maps (which can be
+// map[string]any, map[any]any, or map[interface{}]interface{}) into JSON
+// bytes via ugorji codec. The codec's JSON encoder handles the non-string-keyed
+// map forms that stdlib json.Marshal cannot serialize.
+func cborMapToJSONBytes(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	var h codec.JsonHandle
+	if err := codec.NewEncoder(&buf, &h).Encode(v); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func nextJSONStart(s string, from int) int {
@@ -317,14 +469,7 @@ func parseEventObject(raw string) (StreamEvent, bool) {
 	}
 	if v, ok := obj["input"]; ok {
 		if _, hasName := obj["name"]; !hasName {
-			input := ""
-			if s, ok := v.(string); ok {
-				input = s
-			} else {
-				b, _ := json.Marshal(v)
-				input = string(b)
-			}
-			return StreamEvent{Type: "toolUseInput", Input: input}, true
+			return StreamEvent{Type: "toolUseInput", Input: toolInputString(v)}, true
 		}
 	}
 	if v, ok := obj["stop"].(bool); ok {

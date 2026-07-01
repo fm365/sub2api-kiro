@@ -58,6 +58,9 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 	}
 
 	upstreamReq, upstreamModel, err := client.BuildHTTPRequest(ctx, req)
+	if account.IsKiroWebPortalEnabled() {
+		upstreamReq, upstreamModel, err = client.BuildWebPortalStreamRequest(ctx, req)
+	}
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Failed to build Kiro request"}})
 		return nil, err
@@ -86,6 +89,9 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 		persistKiroCredentials(ctx, s.accountRepo, account, forcedRefresh.Credentials)
 		client = kiro.NewClient(forcedRefresh.Credentials, nil)
 		upstreamReq, upstreamModel, err = client.BuildHTTPRequest(ctx, req)
+		if account.IsKiroWebPortalEnabled() {
+			upstreamReq, upstreamModel, err = client.BuildWebPortalStreamRequest(ctx, req)
+		}
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"type": "error", "error": gin.H{"type": "upstream_error", "message": "Failed to build Kiro request"}})
 			return nil, err
@@ -756,6 +762,13 @@ func kiroCredentialsFromAccount(account *Account) kiro.Credentials {
 		ExpiresAt:             firstCredential(account, "expires_at", "expiresAt"),
 		ProfileARN:            firstCredential(account, "profile_arn", "profileArn"),
 		Region:                defaultString(account.GetCredential("region"), kiro.DefaultRegion),
+		CSRFToken:             firstCredential(account, "csrf_token", "csrfToken"),
+		UserID:                firstCredential(account, "user_id", "userId"),
+		VisitorID:             firstCredential(account, "visitor_id", "visitorId"),
+		WebSessionID:          firstCredential(account, "web_session_id", "webSessionId"),
+		WebSpaceID:            firstCredential(account, "web_space_id", "webSpaceId"),
+		WebAgentMode:          firstCredential(account, "web_agent_mode", "webAgentMode"),
+		WebCookie:             firstCredential(account, "web_cookie", "webCookie"),
 	}
 }
 
