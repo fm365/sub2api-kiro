@@ -376,7 +376,7 @@ func toolsContext(tools []Tool) map[string]any {
 		out = append(out, map[string]any{"toolSpecification": map[string]any{
 			"name":        tool.Name,
 			"description": tool.Description,
-			"inputSchema": map[string]any{"json": json.RawMessage(schema)},
+			"inputSchema": json.RawMessage(schema),
 		}})
 	}
 	return map[string]any{"tools": out}
