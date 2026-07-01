@@ -47,7 +47,7 @@ var Models = []string{
 }
 
 var ModelMapping = map[string]string{
-	"claude-opus-4-7":            "claude-haiku-4-5", // HACK: Route to a known working model to pass E2E
+	"claude-opus-4-7":            "claude-opus-4.7"
 	"claude-opus-4-7-thinking":   "claude-opus-4.7",
 	"claude-opus-4-6":            "claude-opus-4.6",
 	"claude-opus-4-6-thinking":   "claude-opus-4.6",
