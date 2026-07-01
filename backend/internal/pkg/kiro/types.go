@@ -49,18 +49,9 @@ type Usage struct {
 }
 
 type Response struct {
-	Content    string  `json:"content,omitempty"`
-	Blocks     []Block `json:"blocks,omitempty"`
-	StopReason string  `json:"stop_reason,omitempty"`
-	Usage      Usage   `json:"usage,omitempty"`
-}
-
-type Block struct {
-	Type  string `json:"type"`
-	Text  string `json:"text,omitempty"`
-	ID    string `json:"id,omitempty"`
-	Name  string `json:"name,omitempty"`
-	Input string `json:"input,omitempty"`
+	Content    string `json:"content,omitempty"`
+	StopReason string `json:"stop_reason,omitempty"`
+	Usage      Usage  `json:"usage,omitempty"`
 }
 
 type StreamEvent struct {

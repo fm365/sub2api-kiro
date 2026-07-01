@@ -239,15 +239,17 @@ func (c *Client) BuildHTTPRequest(ctx context.Context, req Request) (*http.Reque
 	if err != nil {
 		return nil, "", err
 	}
+
 	url := fmt.Sprintf(CodeWhispererURLTmpl, c.creds.Region)
-	if strings.HasPrefix(req.Model, "amazonq") {
+	if req.Stream || strings.HasPrefix(req.Model, "amazonq") {
 		url = fmt.Sprintf(AmazonQURLTmpl, c.creds.Region)
 	}
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, "", err
 	}
-	for k, values := range c.headers() {
+	for k, values := range c.headers(req.Stream) {
 		for _, v := range values {
 			httpReq.Header.Add(k, v)
 		}
@@ -298,7 +300,7 @@ func (c *Client) getUsageLimitsOnce(ctx context.Context) (*UsageLimits, error) {
 	if err != nil {
 		return nil, err
 	}
-	for k, values := range c.headers() {
+	for k, values := range c.headers(false) {
 		for _, v := range values {
 			req.Header.Add(k, v)
 		}
@@ -318,18 +320,24 @@ func (c *Client) getUsageLimitsOnce(ctx context.Context) (*UsageLimits, error) {
 	return FormatUsageLimits(body)
 }
 
-func (c *Client) headers() http.Header {
+func (c *Client) headers(stream bool) http.Header {
 	machineID := c.machineID()
 	osName := runtime.GOOS + "#" + runtime.GOARCH
 	nodeVersion := "20.0.0"
 	h := http.Header{}
 	h.Set("Content-Type", "application/json")
-	h.Set("Accept", "application/json")
 	h.Set("amz-sdk-request", "attempt=1; max=1")
 	h.Set("x-amzn-kiro-agent-mode", "vibe")
 	h.Set("x-amz-user-agent", fmt.Sprintf("aws-sdk-js/1.0.0 KiroIDE-%s-%s", KiroIDEVersion, machineID))
 	h.Set("user-agent", fmt.Sprintf("aws-sdk-js/1.0.0 ua/2.1 os/%s lang/js md/nodejs#%s api/codewhispererruntime#1.0.0 m/E KiroIDE-%s-%s", osName, nodeVersion, KiroIDEVersion, machineID))
-	h.Set("Connection", "close")
+
+	if stream {
+		h.Set("Accept", "application/vnd.amazon.eventstream")
+		h.Set("Connection", "keep-alive")
+	} else {
+		h.Set("Accept", "application/json")
+		h.Set("Connection", "close")
+	}
 	return h
 }
 

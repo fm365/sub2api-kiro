@@ -1354,6 +1354,17 @@ func (a *Account) IsOpenAIOAuthPassthroughEnabled() bool {
 	return a != nil && a.IsOpenAIOAuth() && a.IsOpenAIPassthroughEnabled()
 }
 
+// IsKiroPassthroughEnabled 返回 Kiro 账号是否启用 Claude/Kiro 请求透传兼容模式。
+//
+// 字段：accounts.extra.kiro_passthrough。
+// 字段缺失或类型不正确时，按 false（关闭）处理。
+func (a *Account) IsKiroPassthroughEnabled() bool {
+	if a == nil || a.Platform != PlatformKiro {
+		return false
+	}
+	return a.getExtraBool("kiro_passthrough")
+}
+
 // IsAnthropicAPIKeyPassthroughEnabled 返回 Anthropic API Key 账号是否启用"自动透传（仅替换认证）"。
 // 字段：accounts.extra.anthropic_passthrough。
 // 字段缺失或类型不正确时，按 false（关闭）处理。

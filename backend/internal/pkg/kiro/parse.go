@@ -13,19 +13,16 @@ import (
 
 func ParseNonStreamingResponse(body []byte) Response {
 	if events := ParseEventStreamBytes(body); len(events) > 0 {
-		blocks := blocksFromStreamEvents(events)
-		text := strings.TrimSpace(textFromBlocks(blocks))
-		stopReason := "end_turn"
-		for _, block := range blocks {
-			if block.Type == "tool_use" {
-				stopReason = "tool_use"
-				break
+		var parts []string
+		for _, event := range events {
+			if event.Type == "content" && event.Content != "" {
+				parts = append(parts, event.Content)
 			}
 		}
+		text := strings.TrimSpace(strings.Join(parts, ""))
 		return Response{
 			Content:    text,
-			Blocks:     blocks,
-			StopReason: stopReason,
+			StopReason: "end_turn",
 			Usage: Usage{
 				InputTokens:  estimateTokens(text) / 2,
 				OutputTokens: estimateTokens(text),
@@ -41,79 +38,6 @@ func ParseNonStreamingResponse(body []byte) Response {
 			OutputTokens: estimateTokens(text),
 		},
 	}
-}
-
-func blocksFromStreamEvents(events []StreamEvent) []Block {
-	blocks := make([]Block, 0, len(events))
-	currentToolIndex := -1
-	for _, event := range events {
-		switch event.Type {
-		case "content":
-			if event.Content == "" {
-				continue
-			}
-			currentToolIndex = -1
-			if len(blocks) > 0 && blocks[len(blocks)-1].Type == "text" {
-				blocks[len(blocks)-1].Text += event.Content
-			} else {
-				blocks = append(blocks, Block{Type: "text", Text: event.Content})
-			}
-		case "toolUse":
-			if event.ToolUse == nil {
-				continue
-			}
-			blocks = append(blocks, Block{Type: "tool_use", ID: event.ToolUse.ToolUseID, Name: event.ToolUse.Name, Input: NormalizeToolInputChunk("", event.ToolUse.Input)})
-			currentToolIndex = len(blocks) - 1
-			if event.ToolUse.Stop {
-				currentToolIndex = -1
-			}
-		case "toolUseInput":
-			if event.Input == "" || currentToolIndex < 0 || currentToolIndex >= len(blocks) || blocks[currentToolIndex].Type != "tool_use" {
-				continue
-			}
-			blocks[currentToolIndex].Input = NormalizeToolInputChunk(blocks[currentToolIndex].Input, event.Input)
-		case "toolUseStop":
-			currentToolIndex = -1
-		}
-	}
-	return blocks
-}
-
-// NormalizeToolInputChunk appends or merges Kiro tool input chunks into one JSON value when possible.
-func NormalizeToolInputChunk(existing, next string) string {
-	existing = strings.TrimSpace(existing)
-	next = strings.TrimSpace(next)
-	if existing == "" {
-		return next
-	}
-	if next == "" {
-		return existing
-	}
-	joined := existing + next
-	if json.Valid([]byte(joined)) {
-		return joined
-	}
-	var left map[string]any
-	var right map[string]any
-	if json.Unmarshal([]byte(existing), &left) == nil && json.Unmarshal([]byte(next), &right) == nil {
-		for k, v := range right {
-			left[k] = v
-		}
-		if merged, err := json.Marshal(left); err == nil {
-			return string(merged)
-		}
-	}
-	return joined
-}
-
-func textFromBlocks(blocks []Block) string {
-	parts := make([]string, 0, len(blocks))
-	for _, block := range blocks {
-		if block.Type == "text" && block.Text != "" {
-			parts = append(parts, block.Text)
-		}
-	}
-	return strings.Join(parts, "")
 }
 
 func ParseEventStreamBuffer(buffer string) (events []StreamEvent, remaining string) {

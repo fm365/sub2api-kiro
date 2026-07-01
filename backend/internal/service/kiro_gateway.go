@@ -24,7 +24,13 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 	if account == nil || parsed == nil {
 		return nil, errors.New("kiro forward: nil account or request")
 	}
-	req, err := kiroRequestFromAnthropicBody(parsed.Body)
+	var req kiro.Request
+	var err error
+	if account.IsKiroPassthroughEnabled() {
+		req, err = kiroRequestFromPassthrough(parsed.Body)
+	} else {
+		req, err = kiroRequestFromAnthropicBody(parsed.Body)
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": "Invalid request body"}})
 		return nil, err
@@ -694,6 +700,14 @@ func kiroRequestFromAnthropicBody(body []byte) (kiro.Request, error) {
 	return out, nil
 }
 
+func kiroRequestFromPassthrough(body []byte) (kiro.Request, error) {
+	var req kiro.Request
+	if err := json.Unmarshal(body, &req); err != nil {
+		return kiro.Request{}, err
+	}
+	return req, nil
+}
+
 func kiroCredentialsFromAccount(account *Account) kiro.Credentials {
 	return kiro.Credentials{
 		UUID:                  account.GetCredential("uuid"),
@@ -747,7 +761,7 @@ func kiroRequestID(resp *http.Response) string {
 	if resp == nil {
 		return "generated:" + generateRequestID()
 	}
-	for _, key := range []string{"x-amzn-requestid", "x-amzn-request-id", "X-Amzn-Requestid", "X-Amzn-Request-Id", "x-request-id"} {
+	for _, key := range []string{"x-amzn-requestid", "x-amzn-request-id", "x-request-id"} {
 		if v := strings.TrimSpace(resp.Header.Get(key)); v != "" {
 			return v
 		}
