@@ -32,6 +32,23 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Nil(t, got.Extra["unused_large_field"])
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsKiroStripToolsOnFailFlag(t *testing.T) {
+	account := service.Account{
+		ID:       43,
+		Platform: service.PlatformKiro,
+		Type:     service.AccountTypeOAuth,
+		Extra: map[string]any{
+			"kiro_strip_tools_on_fail": true,
+			"unused_large_field":       "drop-me",
+		},
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.Equal(t, true, got.Extra["kiro_strip_tools_on_fail"])
+	require.Nil(t, got.Extra["unused_large_field"])
+}
+
 func TestBuildSchedulerMetadataAccount_KeepsSlimGroupMembership(t *testing.T) {
 	account := service.Account{
 		ID:       42,
