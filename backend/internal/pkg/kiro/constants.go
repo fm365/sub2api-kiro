@@ -32,6 +32,7 @@ var OAuthScopes = []string{
 }
 
 var Models = []string{
+	"claude-opus-4-8",
 	"claude-opus-4-7",
 	"claude-opus-4-7-thinking",
 	"claude-opus-4-6",
@@ -45,9 +46,16 @@ var Models = []string{
 	"claude-sonnet-4-5-20250929",
 	"claude-sonnet-4-20250514",
 	"claude-3-7-sonnet-20250219",
+	"claude-sonnet-5",
+	"deepseek-3.2",
+	"minimax-m2.5",
+	"minimax-m2.1",
+	"glm-5",
+	"qwen3-coder-next",
 }
 
 var ModelMapping = map[string]string{
+	"claude-opus-4-8":            "claude-opus-4.8",
 	"claude-opus-4-7":            "claude-opus-4.7",
 	"claude-opus-4-7-thinking":   "claude-opus-4.7",
 	"claude-opus-4-6":            "claude-opus-4.6",
@@ -57,10 +65,16 @@ var ModelMapping = map[string]string{
 	"claude-opus-4-5-20251101":   "claude-opus-4.5",
 	"claude-haiku-4-5":           "claude-haiku-4.5",
 	"claude-haiku-4-5-20251001":  "claude-haiku-4.5",
-	"claude-sonnet-4-5":          "CLAUDE_SONNET_4_5_20250929_V1_0",
-	"claude-sonnet-4-5-20250929": "CLAUDE_SONNET_4_5_20250929_V1_0",
-	"claude-sonnet-4-20250514":   "CLAUDE_SONNET_4_20250514_V1_0",
-	"claude-3-7-sonnet-20250219": "CLAUDE_3_7_SONNET_20250219_V1_0",
+	"claude-sonnet-4-5":          "claude-sonnet-4.5",
+	"claude-sonnet-4-5-20250929": "claude-sonnet-4.5",
+	"claude-sonnet-4-20250514":   "claude-sonnet-4-20250514",
+	"claude-3-7-sonnet-20250219": "claude-3-7-sonnet-20250219",
+	"claude-sonnet-5":            "claude-sonnet-5",
+	"deepseek-3.2":               "deepseek-3.2",
+	"minimax-m2.5":               "minimax-m2.5",
+	"minimax-m2.1":               "minimax-m2.1",
+	"glm-5":                      "glm-5",
+	"qwen3-coder-next":           "qwen3-coder-next",
 }
 
 func IsKnownModel(model string) bool {

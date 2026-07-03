@@ -24,7 +24,7 @@ func TestBuildHTTPRequest_StreamUsesGenerateAssistantResponse(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, "CLAUDE_SONNET_4_5_20250929_V1_0", upstreamModel)
+	require.Equal(t, "claude-sonnet-4.5", upstreamModel)
 	require.Contains(t, httpReq.URL.String(), "/generateAssistantResponse")
 	require.Equal(t, "application/vnd.amazon.eventstream", httpReq.Header.Get("Accept"))
 	require.Equal(t, "application/json", httpReq.Header.Get("Content-Type"))
@@ -45,7 +45,7 @@ func TestBuildHTTPRequest_NonStreamUsesGenerateAssistantResponse(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, "CLAUDE_SONNET_4_5_20250929_V1_0", upstreamModel)
+	require.Equal(t, "claude-sonnet-4.5", upstreamModel)
 	require.Contains(t, httpReq.URL.String(), "/generateAssistantResponse")
 	require.Equal(t, "application/json", httpReq.Header.Get("Accept"))
 	require.Equal(t, "application/json", httpReq.Header.Get("Content-Type"))
