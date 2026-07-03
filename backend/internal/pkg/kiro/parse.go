@@ -102,6 +102,23 @@ func blocksFromStreamEvents(events []StreamEvent) []Block {
 			if event.ToolUse == nil {
 				continue
 			}
+			// Kiro web portal may emit multiple "toolUse" frames for the same
+			// tool_use id (one per CBOR eventstream frame). If we already have
+			// an in-progress tool_use block with the same id, treat this event
+			// as additional input chunks and merge them instead of appending a
+			// duplicate block.
+			if currentToolIndex >= 0 && currentToolIndex < len(blocks) && blocks[currentToolIndex].Type == "tool_use" && blocks[currentToolIndex].ID == event.ToolUse.ToolUseID {
+				if event.ToolUse.Input != "" {
+					blocks[currentToolIndex].Input = NormalizeToolInputChunk(blocks[currentToolIndex].Input, event.ToolUse.Input)
+				}
+				if event.ToolUse.Name != "" && blocks[currentToolIndex].Name == "" {
+					blocks[currentToolIndex].Name = event.ToolUse.Name
+				}
+				if event.ToolUse.Stop {
+					currentToolIndex = -1
+				}
+				continue
+			}
 			blocks = append(blocks, Block{Type: "tool_use", ID: event.ToolUse.ToolUseID, Name: event.ToolUse.Name, Input: NormalizeToolInputChunk("", event.ToolUse.Input)})
 			currentToolIndex = len(blocks) - 1
 			if event.ToolUse.Stop {
@@ -325,8 +342,20 @@ func parseWebPortalPayload(eventType string, raw any) (StreamEvent, bool) {
 	if name != "" {
 		raw := mapLookup(payload, "input")
 		input := toolInputString(raw)
+		// Kiro web portal CBOR may encode the input chunk-by-chunk as
+		// {"raw_input":"<partial-json>"} (a single-key map). When we see that
+		// shape, treat the inner string as a chunk of JSON that will be merged
+		// downstream by NormalizeToolInputChunk rather than serialising the
+		// wrapper map itself (which would produce bogus {"raw_input":"..."}
+		// values that break Claude Code tool input parsing).
 		if raw != nil {
-			if b, err := cborMapToJSONBytes(raw); err == nil {
+			if chunk, ok := raw.(map[string]any); ok {
+				if ri, ok := chunk["raw_input"].(string); ok && len(chunk) <= 1 {
+					input = ri
+				} else if b, err := cborMapToJSONBytes(raw); err == nil {
+					input = string(b)
+				}
+			} else if b, err := cborMapToJSONBytes(raw); err == nil {
 				input = string(b)
 			}
 		}

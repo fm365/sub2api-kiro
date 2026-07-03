@@ -177,3 +177,38 @@ func TestParseEventStreamBytes_UsageEvent(t *testing.T) {
 		t.Fatalf("cache creation breakdown = %#v", events[0].Usage)
 	}
 }
+
+
+func TestParseNonStreamingResponse_WebPortalCBORRawInputChunks(t *testing.T) {
+	// Kiro web portal emits the tool input as a series of CBOR frames, each
+	// carrying a partial JSON string under a single-key {"raw_input": "..."}
+	// map. All frames share the same toolUseId. The parser must:
+	//   1) treat each frame's raw_input as a chunk (not serialise the wrapper map)
+	//   2) merge them into a single tool_use block, not duplicate the block
+	chunks := []string{`{"loca`, `tion": "S`, `an Francisc`, `o"}`}
+	body := []byte{}
+	for _, c := range chunks {
+		body = append(body, kiroTestWebPortalFrame("tool_use_start", map[string]any{
+			"name":      "get_weather",
+			"toolUseId": "toolu_chunked",
+			"input":     map[string]any{"raw_input": c},
+		})...)
+	}
+	body = append(body, kiroTestWebPortalFrame("tool_use_stop", map[string]any{"stop": true})...)
+
+	resp := ParseNonStreamingResponse(body)
+	if resp.StopReason != "tool_use" {
+		t.Fatalf("StopReason = %q, want tool_use", resp.StopReason)
+	}
+	if len(resp.Blocks) != 1 {
+		t.Fatalf("Blocks len = %d, want 1 (dedup of repeated toolUse frames): %#v", len(resp.Blocks), resp.Blocks)
+	}
+	tool := resp.Blocks[0]
+	if tool.Type != "tool_use" || tool.ID != "toolu_chunked" || tool.Name != "get_weather" {
+		t.Fatalf("unexpected tool block: %#v", tool)
+	}
+	want := `{"location": "San Francisco"}`
+	if tool.Input != want {
+		t.Fatalf("tool input = %q, want %q", tool.Input, want)
+	}
+}
