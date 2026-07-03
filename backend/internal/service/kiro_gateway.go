@@ -396,6 +396,10 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 			}
 			return false
 		case "contextUsage":
+			if event.Percentage > 0 {
+				const kiroContextWindow = 200000
+				usage.InputTokens = int(event.Percentage / 100.0 * kiroContextWindow)
+			}
 			return false
 		default:
 			return false
