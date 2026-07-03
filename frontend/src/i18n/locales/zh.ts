@@ -3757,7 +3757,14 @@ export default {
         waitingForAuth: '等待授权完成...',
         openAuthUrl: '打开授权页',
         userCode: '用户码',
-        pollingHint: '完成浏览器授权后无需复制回调地址，系统会自动检测并创建账号。'
+        pollingHint: '完成浏览器授权后无需复制回调地址，系统会自动检测并创建账号。',
+        compatibilityOptions: 'Kiro 兼容选项',
+        passthrough: '透传请求字段',
+        passthroughDesc: '把 Claude 风格请求字段直接交给 Kiro 适配器，适合新版客户端或 Claude Code payload。',
+        stripToolsOnFail: '400 时剥离 tools 重试',
+        stripToolsOnFailDesc: '如果 Kiro 对带 tools 的请求返回 400，则自动剥离 tools 重试一次，并用 X-Kiro-Tools-Stripped 标记响应。',
+        webPortal: '使用 Kiro Web Portal endpoint',
+        webPortalDesc: '实验性 CBOR Web/BFF 模式。需要从 Kiro Web 捕获 web session、CSRF、user 和 visitor 凭据。'
       },
       // Gemini specific (platform-wide)
       gemini: {

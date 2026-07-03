@@ -3620,7 +3620,14 @@ export default {
         waitingForAuth: 'Waiting for authorization...',
         openAuthUrl: 'Open Auth Page',
         userCode: 'User Code',
-        pollingHint: 'After browser authorization completes, no callback URL is needed. The system will detect completion and create the account.'
+        pollingHint: 'After browser authorization completes, no callback URL is needed. The system will detect completion and create the account.',
+        compatibilityOptions: 'Kiro compatibility options',
+        passthrough: 'Passthrough request fields',
+        passthroughDesc: 'Forward Claude-style request fields directly into the Kiro adapter. Useful for newer clients or Claude Code payloads.',
+        stripToolsOnFail: 'Retry without tools on 400',
+        stripToolsOnFailDesc: 'If Kiro rejects a tool-enabled request with 400, retry once without tools and mark the response with X-Kiro-Tools-Stripped.',
+        webPortal: 'Use Kiro Web Portal endpoint',
+        webPortalDesc: 'Experimental CBOR Web/BFF mode. Requires web session, CSRF, user and visitor credentials captured from Kiro web.'
       },
       // Gemini specific (platform-wide)
       gemini: {

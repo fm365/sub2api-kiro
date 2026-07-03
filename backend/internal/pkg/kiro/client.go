@@ -173,11 +173,12 @@ func (c *Client) BuildRequestBody(req Request) (map[string]any, string) {
 	history := make([]any, 0, len(messages))
 	start := 0
 
-	systemPrompt := contentText(req.System)
+	systemPrompt := contentTextOnly(req.System)
 	if systemPrompt != "" {
 		if len(messages) > 0 && messages[0].Role == "user" {
-			first := contentText(messages[0].Content)
-			history = append(history, userInputMessage(systemPrompt+"\n\n"+first, modelID))
+			firstParts := parseContentParts(messages[0].Content)
+			firstParts.text = joinNonEmpty("\n\n", systemPrompt, firstParts.text)
+			history = append(history, userInputMessageFromParts(firstParts, modelID))
 			start = 1
 		} else {
 			history = append(history, userInputMessage(systemPrompt, modelID))
@@ -186,46 +187,50 @@ func (c *Client) BuildRequestBody(req Request) (map[string]any, string) {
 
 	for i := start; i < len(messages)-1; i++ {
 		msg := messages[i]
+		parts := parseContentParts(msg.Content)
 		if msg.Role == "assistant" {
-			history = append(history, map[string]any{"assistantResponseMessage": map[string]any{"content": contentText(msg.Content)}})
+			history = append(history, assistantResponseMessageFromParts(parts))
 			continue
 		}
-		history = append(history, userInputMessage(contentText(msg.Content), modelID))
+		history = append(history, userInputMessageFromParts(parts, modelID))
 	}
 
-	currentContent := "Continue"
+	currentParts := parsedContentParts{text: "Continue"}
 	if len(messages) > 0 {
 		current := messages[len(messages)-1]
-		currentContent = contentText(current.Content)
+		currentParts = parseContentParts(current.Content)
 		if current.Role == "assistant" {
-			history = append(history, map[string]any{"assistantResponseMessage": map[string]any{"content": currentContent}})
-			currentContent = "Continue"
+			history = append(history, assistantResponseMessageFromParts(currentParts))
+			currentParts = parsedContentParts{text: "Continue"}
 		} else if len(history) > 0 {
 			if _, ok := history[len(history)-1].(map[string]any)["assistantResponseMessage"]; !ok {
 				history = append(history, map[string]any{"assistantResponseMessage": map[string]any{"content": "Continue"}})
 			}
 		}
 	}
-	if strings.TrimSpace(currentContent) == "" {
-		currentContent = "Continue"
+	if strings.TrimSpace(currentParts.text) == "" && len(currentParts.toolResults) == 0 {
+		currentParts.text = "Continue"
+	}
+
+	currentUserInput := map[string]any{
+		"content": currentParts.text,
+		"modelId": modelID,
+		"origin":  OriginAIEditor,
+	}
+	context := userInputMessageContext(req.Tools, currentParts.toolResults)
+	if len(context) > 0 {
+		currentUserInput["userInputMessageContext"] = context
 	}
 
 	state := map[string]any{
 		"chatTriggerType": ChatTriggerManual,
 		"conversationId":  conversationID,
 		"currentMessage": map[string]any{
-			"userInputMessage": map[string]any{
-				"content": currentContent,
-				"modelId": modelID,
-				"origin":  OriginAIEditor,
-			},
+			"userInputMessage": currentUserInput,
 		},
 	}
 	if len(history) > 0 {
 		state["history"] = history
-	}
-	if len(req.Tools) > 0 {
-		state["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)["userInputMessageContext"] = toolsContext(req.Tools)
 	}
 	body := map[string]any{"conversationState": state}
 	if c.creds.AuthMethod == AuthMethodSocial && c.creds.ProfileARN != "" {
@@ -303,7 +308,7 @@ func (c *Client) BuildHTTPRequest(ctx context.Context, req Request) (*http.Reque
 	}
 
 	url := fmt.Sprintf(CodeWhispererURLTmpl, c.creds.Region)
-	if req.Stream || strings.HasPrefix(req.Model, "amazonq") {
+	if strings.HasPrefix(req.Model, "amazonq") {
 		url = fmt.Sprintf(AmazonQURLTmpl, c.creds.Region)
 	}
 
@@ -428,20 +433,188 @@ func userInputMessage(content, modelID string) map[string]any {
 	}}
 }
 
+type parsedContentParts struct {
+	text        string
+	toolUses    []any
+	toolResults []any
+}
+
+func assistantResponseMessageFromParts(parts parsedContentParts) map[string]any {
+	msg := map[string]any{"content": parts.text}
+	if len(parts.toolUses) > 0 {
+		msg["toolUses"] = parts.toolUses
+	}
+	return map[string]any{"assistantResponseMessage": msg}
+}
+
+func userInputMessageFromParts(parts parsedContentParts, modelID string) map[string]any {
+	msg := map[string]any{
+		"content": parts.text,
+		"modelId": modelID,
+		"origin":  OriginAIEditor,
+	}
+	context := userInputMessageContext(nil, parts.toolResults)
+	if len(context) > 0 {
+		msg["userInputMessageContext"] = context
+	}
+	return map[string]any{"userInputMessage": msg}
+}
+
+func userInputMessageContext(tools []Tool, toolResults []any) map[string]any {
+	context := map[string]any{}
+	if len(tools) > 0 {
+		for k, v := range toolsContext(tools) {
+			context[k] = v
+		}
+	}
+	if len(toolResults) > 0 {
+		context["toolResults"] = toolResults
+	}
+	return context
+}
+
+func contentTextOnly(v any) string {
+	return parseContentParts(v).text
+}
+
+func parseContentParts(v any) parsedContentParts {
+	switch t := v.(type) {
+	case nil:
+		return parsedContentParts{}
+	case string:
+		return parsedContentParts{text: t}
+	case json.RawMessage:
+		return rawContentParts(t)
+	case []byte:
+		return rawContentParts(t)
+	default:
+		b, _ := json.Marshal(t)
+		return rawContentParts(b)
+	}
+}
+
+func rawContentParts(raw []byte) parsedContentParts {
+	if len(raw) == 0 {
+		return parsedContentParts{}
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return parsedContentParts{text: s}
+	}
+	var parts []map[string]any
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return parsedContentParts{text: string(raw)}
+	}
+
+	out := parsedContentParts{}
+	var texts []string
+	for _, part := range parts {
+		typ, _ := part["type"].(string)
+		switch typ {
+		case "text":
+			if text, _ := part["text"].(string); text != "" {
+				texts = append(texts, text)
+			}
+		case "tool_use":
+			name, _ := part["name"].(string)
+			id, _ := part["id"].(string)
+			if name == "" || id == "" {
+				continue
+			}
+			input, ok := part["input"]
+			if !ok || input == nil {
+				input = map[string]any{}
+			}
+			out.toolUses = append(out.toolUses, map[string]any{
+				"toolUseId": id,
+				"name":      name,
+				"input":     input,
+			})
+		case "tool_result":
+			id, _ := part["tool_use_id"].(string)
+			if id == "" {
+				continue
+			}
+			status := "success"
+			if isError, _ := part["is_error"].(bool); isError {
+				status = "error"
+			}
+			out.toolResults = append(out.toolResults, map[string]any{
+				"toolUseId": id,
+				"content":   toolResultContent(part["content"]),
+				"status":    status,
+			})
+		}
+	}
+	out.text = strings.Join(texts, "\n")
+	return out
+}
+
+func toolResultContent(content any) []any {
+	if content == nil {
+		return []any{map[string]any{"json": map[string]any{"text": ""}}}
+	}
+	if s, ok := content.(string); ok {
+		return []any{map[string]any{"json": map[string]any{"text": s}}}
+	}
+	items, ok := content.([]any)
+	if !ok {
+		return []any{map[string]any{"json": content}}
+	}
+	out := make([]any, 0, len(items))
+	for _, item := range items {
+		if block, ok := item.(map[string]any); ok {
+			if typ, _ := block["type"].(string); typ == "text" {
+				if text, _ := block["text"].(string); text != "" {
+					out = append(out, map[string]any{"json": map[string]any{"text": text}})
+					continue
+				}
+			}
+		}
+		out = append(out, map[string]any{"json": item})
+	}
+	if len(out) == 0 {
+		return []any{map[string]any{"json": map[string]any{"text": ""}}}
+	}
+	return out
+}
+
+func joinNonEmpty(sep string, vals ...string) string {
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			out = append(out, v)
+		}
+	}
+	return strings.Join(out, sep)
+}
+
 func toolsContext(tools []Tool) map[string]any {
 	out := make([]any, 0, len(tools))
 	for _, tool := range tools {
-		schema := json.RawMessage(`{}`)
-		if len(tool.InputSchema) > 0 {
-			schema = tool.InputSchema
-		}
 		out = append(out, map[string]any{"toolSpecification": map[string]any{
 			"name":        tool.Name,
 			"description": tool.Description,
-			"inputSchema": json.RawMessage(schema),
+			"inputSchema": normalizeToolInputSchema(tool.InputSchema),
 		}})
 	}
 	return map[string]any{"tools": out}
+}
+
+func normalizeToolInputSchema(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return map[string]any{"json": map[string]any{}}
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil || decoded == nil {
+		return map[string]any{"json": map[string]any{}}
+	}
+	if wrapped, ok := decoded.(map[string]any); ok {
+		if _, hasJSON := wrapped["json"]; hasJSON {
+			return wrapped
+		}
+	}
+	return map[string]any{"json": decoded}
 }
 
 func mergeAdjacentMessages(in []Message) []Message {
@@ -451,68 +624,27 @@ func mergeAdjacentMessages(in []Message) []Message {
 			out = append(out, msg)
 			continue
 		}
-		prev := contentText(out[len(out)-1].Content)
-		next := contentText(msg.Content)
-		if prev == "" {
-			out[len(out)-1].Content = next
-		} else if next != "" {
-			out[len(out)-1].Content = prev + "\n" + next
+		prevParts := parseContentParts(out[len(out)-1].Content)
+		nextParts := parseContentParts(msg.Content)
+		if len(prevParts.toolUses) > 0 || len(prevParts.toolResults) > 0 || len(nextParts.toolUses) > 0 || len(nextParts.toolResults) > 0 {
+			out = append(out, msg)
+			continue
+		}
+		if prevParts.text == "" {
+			out[len(out)-1].Content = nextParts.text
+		} else if nextParts.text != "" {
+			out[len(out)-1].Content = prevParts.text + "\n" + nextParts.text
 		}
 	}
 	return out
 }
 
 func contentText(v any) string {
-	switch t := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return t
-	case json.RawMessage:
-		return rawContentText(t)
-	case []byte:
-		return rawContentText(t)
-	default:
-		b, _ := json.Marshal(t)
-		return rawContentText(b)
-	}
+	return contentTextOnly(v)
 }
 
 func rawContentText(raw []byte) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	var parts []map[string]any
-	if err := json.Unmarshal(raw, &parts); err == nil {
-		var texts []string
-		for _, part := range parts {
-			switch part["type"] {
-			case "text":
-				if text, _ := part["text"].(string); text != "" {
-					texts = append(texts, text)
-				}
-			case "tool_use":
-				name, _ := part["name"].(string)
-				id, _ := part["id"].(string)
-				input, _ := json.Marshal(part["input"])
-				if id != "" {
-					texts = append(texts, fmt.Sprintf("[Called %s (%s) with args: %s]", name, id, input))
-				} else {
-					texts = append(texts, fmt.Sprintf("[Called %s with args: %s]", name, input))
-				}
-			case "tool_result":
-				id, _ := part["tool_use_id"].(string)
-				content, _ := json.Marshal(part["content"])
-				texts = append(texts, fmt.Sprintf("[Tool result (%s): %s]", id, contentText(json.RawMessage(content))))
-			}
-		}
-		return strings.Join(texts, "\n")
-	}
-	return string(raw)
+	return rawContentParts(raw).text
 }
 
 func firstNonEmpty(vals ...string) string {

@@ -161,12 +161,13 @@ func (s *GatewayService) retryKiroWithoutToolsOnFail(ctx context.Context, c *gin
 }
 
 func (s *GatewayService) writeKiroSuccessResponse(ctx context.Context, c *gin.Context, resp *http.Response, stream bool, originalModel, upstreamModel string, startTime time.Time, parsed *ParsedRequest) (*ForwardResult, error) {
+	requestUsageEstimate := estimateKiroRequestUsage(parsed)
 	if parsed != nil && parsed.OnUpstreamAccepted != nil {
 		parsed.OnUpstreamAccepted()
 	}
 
 	if stream {
-		usage, firstTokenMs, clientDisconnect, err := s.handleKiroClaudeStream(ctx, c, resp, originalModel, startTime)
+		usage, firstTokenMs, clientDisconnect, err := s.handleKiroClaudeStream(ctx, c, resp, originalModel, startTime, requestUsageEstimate)
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +188,8 @@ func (s *GatewayService) writeKiroSuccessResponse(ctx context.Context, c *gin.Co
 		return nil, err
 	}
 	kiroResp := kiro.ParseNonStreamingResponse(body)
-	usage := ClaudeUsage{InputTokens: kiroResp.Usage.InputTokens, OutputTokens: kiroResp.Usage.OutputTokens}
+	usage := claudeUsageFromKiroUsage(kiroResp.Usage)
+	applyKiroUsageEstimate(&usage, requestUsageEstimate)
 	out := apicompat.AnthropicResponse{
 		ID:         "msg_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:24],
 		Type:       "message",
@@ -196,8 +198,10 @@ func (s *GatewayService) writeKiroSuccessResponse(ctx context.Context, c *gin.Co
 		StopReason: defaultString(kiroResp.StopReason, "end_turn"),
 		Content:    kiroBlocksToAnthropicContent(kiroResp),
 		Usage: apicompat.AnthropicUsage{
-			InputTokens:  usage.InputTokens,
-			OutputTokens: usage.OutputTokens,
+			InputTokens:              usage.InputTokens,
+			OutputTokens:             usage.OutputTokens,
+			CacheCreationInputTokens: usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     usage.CacheReadInputTokens,
 		},
 	}
 	payload, _ := json.Marshal(out)
@@ -215,7 +219,7 @@ func (s *GatewayService) writeKiroSuccessResponse(ctx context.Context, c *gin.Co
 	}, nil
 }
 
-func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Context, resp *http.Response, originalModel string, startTime time.Time) (ClaudeUsage, *int, bool, error) {
+func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Context, resp *http.Response, originalModel string, startTime time.Time, requestUsageEstimate ClaudeUsage) (ClaudeUsage, *int, bool, error) {
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
@@ -239,10 +243,11 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 		flusher.Flush()
 		return false
 	}
-	usage := ClaudeUsage{}
+	usage := requestUsageEstimate
+	startUsage := kiroAnthropicUsageObject(usage, false)
 	if write("message_start", gin.H{"type": "message_start", "message": gin.H{
 		"id": messageID, "type": "message", "role": "assistant", "content": []any{}, "model": originalModel,
-		"stop_reason": nil, "stop_sequence": nil, "usage": gin.H{"input_tokens": 0, "output_tokens": 0},
+		"stop_reason": nil, "stop_sequence": nil, "usage": startUsage,
 	}}) {
 		return usage, nil, true, nil
 	}
@@ -385,6 +390,11 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 				return false
 			}
 			return stopCurrentBlock()
+		case "usage":
+			if event.Usage != nil {
+				mergeClaudeUsage(&usage, claudeUsageFromKiroUsage(*event.Usage))
+			}
+			return false
 		case "contextUsage":
 			return false
 		default:
@@ -499,7 +509,7 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 			return usage, firstTokenMs, false, err
 		}
 	}
-	usage.InputTokens = usage.OutputTokens / 2
+	applyKiroUsageEstimate(&usage, requestUsageEstimate)
 	stopReason := "end_turn"
 	if toolUseSeen {
 		stopReason = "tool_use"
@@ -509,7 +519,7 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 			return usage, firstTokenMs, true, nil
 		}
 	}
-	if write("message_delta", gin.H{"type": "message_delta", "delta": gin.H{"stop_reason": stopReason, "stop_sequence": nil}, "usage": gin.H{"output_tokens": usage.OutputTokens}}) {
+	if write("message_delta", gin.H{"type": "message_delta", "delta": gin.H{"stop_reason": stopReason, "stop_sequence": nil}, "usage": kiroAnthropicUsageObject(usage, true)}) {
 		return usage, firstTokenMs, true, nil
 	}
 	_ = write("message_stop", gin.H{"type": "message_stop"})
@@ -846,4 +856,197 @@ func normalizeKiroUpstreamStatus(status int, body []byte) int {
 		return http.StatusTooManyRequests
 	}
 	return status
+}
+
+
+func claudeUsageFromKiroUsage(usage kiro.Usage) ClaudeUsage {
+	return ClaudeUsage{
+		InputTokens:              usage.InputTokens,
+		OutputTokens:             usage.OutputTokens,
+		CacheCreationInputTokens: usage.CacheCreationInputTokens,
+		CacheReadInputTokens:     usage.CacheReadInputTokens,
+		CacheCreation5mTokens:    usage.CacheCreation5mTokens,
+		CacheCreation1hTokens:    usage.CacheCreation1hTokens,
+	}
+}
+
+func mergeClaudeUsage(dst *ClaudeUsage, src ClaudeUsage) {
+	if dst == nil {
+		return
+	}
+	if src.InputTokens > 0 {
+		dst.InputTokens = src.InputTokens
+	}
+	if src.OutputTokens > 0 {
+		dst.OutputTokens = src.OutputTokens
+	}
+	if src.CacheCreationInputTokens > 0 {
+		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
+	}
+	if src.CacheReadInputTokens > 0 {
+		dst.CacheReadInputTokens = src.CacheReadInputTokens
+	}
+	if src.CacheCreation5mTokens > 0 {
+		dst.CacheCreation5mTokens = src.CacheCreation5mTokens
+	}
+	if src.CacheCreation1hTokens > 0 {
+		dst.CacheCreation1hTokens = src.CacheCreation1hTokens
+	}
+}
+
+func applyKiroUsageEstimate(usage *ClaudeUsage, estimate ClaudeUsage) {
+	if usage == nil {
+		return
+	}
+	if usage.InputTokens == 0 {
+		usage.InputTokens = estimate.InputTokens
+	}
+	if usage.CacheCreationInputTokens == 0 {
+		usage.CacheCreationInputTokens = estimate.CacheCreationInputTokens
+	}
+	if usage.CacheReadInputTokens == 0 {
+		usage.CacheReadInputTokens = estimate.CacheReadInputTokens
+	}
+	if usage.CacheCreation5mTokens == 0 {
+		usage.CacheCreation5mTokens = estimate.CacheCreation5mTokens
+	}
+	if usage.CacheCreation1hTokens == 0 {
+		usage.CacheCreation1hTokens = estimate.CacheCreation1hTokens
+	}
+}
+
+func kiroAnthropicUsageObject(usage ClaudeUsage, delta bool) gin.H {
+	out := gin.H{}
+	if !delta || usage.InputTokens > 0 {
+		out["input_tokens"] = usage.InputTokens
+	}
+	out["output_tokens"] = usage.OutputTokens
+	if usage.CacheCreationInputTokens > 0 {
+		out["cache_creation_input_tokens"] = usage.CacheCreationInputTokens
+	}
+	if usage.CacheReadInputTokens > 0 {
+		out["cache_read_input_tokens"] = usage.CacheReadInputTokens
+	}
+	if usage.CacheCreation5mTokens > 0 || usage.CacheCreation1hTokens > 0 {
+		out["cache_creation"] = gin.H{
+			"ephemeral_5m_input_tokens": usage.CacheCreation5mTokens,
+			"ephemeral_1h_input_tokens": usage.CacheCreation1hTokens,
+		}
+	}
+	return out
+}
+
+func estimateKiroRequestUsage(parsed *ParsedRequest) ClaudeUsage {
+	if parsed == nil {
+		return ClaudeUsage{}
+	}
+	input := estimateAnthropicPayloadTokens(parsed.System) + estimateAnthropicPayloadTokens(parsed.Messages)
+	cacheCreation := estimateAnthropicCacheControlledTokens(parsed.System) + estimateAnthropicCacheControlledTokens(parsed.Messages)
+	if cacheCreation > input {
+		cacheCreation = input
+	}
+	usage := ClaudeUsage{InputTokens: input}
+	if cacheCreation > 0 {
+		usage.InputTokens = input - cacheCreation
+		usage.CacheCreationInputTokens = cacheCreation
+		usage.CacheCreation5mTokens = cacheCreation
+	}
+	return usage
+}
+
+func estimateAnthropicPayloadTokens(v any) int {
+	text := textForKiroUsageEstimate(v)
+	if text == "" {
+		return 0
+	}
+	return (len([]rune(text)) + 3) / 4
+}
+
+func estimateAnthropicCacheControlledTokens(v any) int {
+	switch t := v.(type) {
+	case nil:
+		return 0
+	case []any:
+		total := 0
+		for _, item := range t {
+			total += estimateAnthropicCacheControlledTokens(item)
+		}
+		return total
+	case map[string]any:
+		if hasEphemeralCacheControl(t["cache_control"]) {
+			return estimateAnthropicPayloadTokens(t)
+		}
+		total := 0
+		if content, ok := t["content"]; ok {
+			total += estimateAnthropicCacheControlledTokens(content)
+		}
+		if system, ok := t["system"]; ok {
+			total += estimateAnthropicCacheControlledTokens(system)
+		}
+		if messages, ok := t["messages"]; ok {
+			total += estimateAnthropicCacheControlledTokens(messages)
+		}
+		if tools, ok := t["tools"]; ok {
+			total += estimateAnthropicCacheControlledTokens(tools)
+		}
+		return total
+	case json.RawMessage:
+		var decoded any
+		if err := json.Unmarshal(t, &decoded); err != nil {
+			return 0
+		}
+		return estimateAnthropicCacheControlledTokens(decoded)
+	case string, bool, float64, float32, int, int64, int32, uint, uint64, uint32:
+		return 0
+	default:
+		return 0
+	}
+}
+
+func hasEphemeralCacheControl(v any) bool {
+	cc, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	typ, _ := cc["type"].(string)
+	return typ == "ephemeral"
+}
+
+func textForKiroUsageEstimate(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case json.RawMessage:
+		var decoded any
+		if err := json.Unmarshal(t, &decoded); err != nil {
+			return string(t)
+		}
+		return textForKiroUsageEstimate(decoded)
+	case []any:
+		var b strings.Builder
+		for _, item := range t {
+			b.WriteString(textForKiroUsageEstimate(item))
+		}
+		return b.String()
+	case map[string]any:
+		var b strings.Builder
+		if text, _ := t["text"].(string); text != "" {
+			b.WriteString(text)
+		}
+		if content, ok := t["content"]; ok {
+			b.WriteString(textForKiroUsageEstimate(content))
+		}
+		if input, ok := t["input"]; ok {
+			b.WriteString(textForKiroUsageEstimate(input))
+		}
+		return b.String()
+	default:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	}
 }

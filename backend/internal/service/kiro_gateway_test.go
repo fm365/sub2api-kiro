@@ -124,8 +124,6 @@ func TestKiroRequestFromClaudeCodeBodyKeepsClaudeCodeFields(t *testing.T) {
 		"You are Claude Code.",
 		"system-reminder",
 		"inspect repo",
-		"Called Bash (toolu_1)",
-		"Tool result (toolu_1)",
 		"userInputMessageContext",
 		"toolSpecification",
 		"Bash",
@@ -134,6 +132,32 @@ func TestKiroRequestFromClaudeCodeBodyKeepsClaudeCodeFields(t *testing.T) {
 		if !strings.Contains(payloadText, want) {
 			t.Fatalf("upstream payload missing %q: %s", want, payloadText)
 		}
+	}
+	for _, notWant := range []string{"Called Bash (toolu_1)", "Tool result (toolu_1)", "[Called", "[Tool result"} {
+		if strings.Contains(payloadText, notWant) {
+			t.Fatalf("upstream payload should not textify tool block %q: %s", notWant, payloadText)
+		}
+	}
+	if got := gjson.GetBytes(payload, "conversationState.history.1.assistantResponseMessage.toolUses.0.toolUseId").String(); got != "toolu_1" {
+		t.Fatalf("assistant toolUseId = %q, want toolu_1. payload=%s", got, payloadText)
+	}
+	if got := gjson.GetBytes(payload, "conversationState.history.1.assistantResponseMessage.toolUses.0.name").String(); got != "Bash" {
+		t.Fatalf("assistant toolUse name = %q, want Bash. payload=%s", got, payloadText)
+	}
+	if got := gjson.GetBytes(payload, "conversationState.history.1.assistantResponseMessage.toolUses.0.input.command").String(); got != "pwd" {
+		t.Fatalf("assistant toolUse input.command = %q, want pwd. payload=%s", got, payloadText)
+	}
+	if got := gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.toolUseId").String(); got != "toolu_1" {
+		t.Fatalf("current toolResult toolUseId = %q, want toolu_1. payload=%s", got, payloadText)
+	}
+	if got := gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.status").String(); got != "success" {
+		t.Fatalf("current toolResult status = %q, want success. payload=%s", got, payloadText)
+	}
+	if got := gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.content.0.json.text").String(); got != "/tmp/repo" {
+		t.Fatalf("current toolResult content text = %q, want /tmp/repo. payload=%s", got, payloadText)
+	}
+	if got := gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.tools.0.toolSpecification.inputSchema.json.type").String(); got != "object" {
+		t.Fatalf("tool inputSchema.json.type = %q, want object. payload=%s", got, payloadText)
 	}
 }
 
@@ -154,7 +178,7 @@ func TestHandleKiroClaudeStreamEmitsClaudeCodeToolUseEvents(t *testing.T) {
 		Body:       io.NopCloser(strings.NewReader(streamBody)),
 	}
 
-	usage, firstTokenMs, clientDisconnect, err := (&GatewayService{}).handleKiroClaudeStream(c.Request.Context(), c, resp, "claude-sonnet-4-5", testKiroStartTime())
+	usage, firstTokenMs, clientDisconnect, err := (&GatewayService{}).handleKiroClaudeStream(c.Request.Context(), c, resp, "claude-sonnet-4-5", testKiroStartTime(), ClaudeUsage{})
 	if err != nil {
 		t.Fatalf("handleKiroClaudeStream error: %v", err)
 	}
@@ -377,4 +401,48 @@ func TestKiroBlocksToAnthropicContentMapsNonStreamingToolUse(t *testing.T) {
 	if blocks[2].Type != "text" || blocks[2].Text != "Done." {
 		t.Fatalf("unexpected final text block: %#v", blocks[2])
 	}
+}
+
+func TestKiroParseStreamUsageAndCacheFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	streamBody := strings.Join([]string{
+		`{"usage":{"input_tokens":120,"cache_creation_input_tokens":40,"cache_read_input_tokens":80,"cache_creation":{"ephemeral_5m_input_tokens":15,"ephemeral_1h_input_tokens":25}}}`,
+		`{"content":"done"}`,
+		`{"usage":{"output_tokens":9}}`,
+	}, "\n")
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(streamBody))}
+
+	usage, _, clientDisconnect, err := (&GatewayService{}).handleKiroClaudeStream(c.Request.Context(), c, resp, "claude-opus-4-6", testKiroStartTime(), ClaudeUsage{})
+	require.NoError(t, err)
+	require.False(t, clientDisconnect)
+	require.Equal(t, 120, usage.InputTokens)
+	require.Equal(t, 9, usage.OutputTokens)
+	require.Equal(t, 40, usage.CacheCreationInputTokens)
+	require.Equal(t, 80, usage.CacheReadInputTokens)
+	require.Equal(t, 15, usage.CacheCreation5mTokens)
+	require.Equal(t, 25, usage.CacheCreation1hTokens)
+
+	body := w.Body.String()
+	require.Contains(t, body, `"cache_creation_input_tokens":40`)
+	require.Contains(t, body, `"cache_read_input_tokens":80`)
+	require.Contains(t, body, `"input_tokens":120`)
+	require.Contains(t, body, `"output_tokens":9`)
+}
+
+func TestKiroRequestUsageEstimateSeparatesCacheCreationTokens(t *testing.T) {
+	parsed, err := ParseGatewayRequest([]byte(`{
+		"model":"claude-opus-4-6",
+		"system":[{"type":"text","text":"cached system prompt","cache_control":{"type":"ephemeral"}}],
+		"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}]
+	}`), PlatformKiro)
+	require.NoError(t, err)
+
+	usage := estimateKiroRequestUsage(parsed)
+	require.Greater(t, usage.CacheCreationInputTokens, 0)
+	require.Greater(t, usage.InputTokens, 0)
+	require.Equal(t, usage.CacheCreationInputTokens, usage.CacheCreation5mTokens)
+	require.Equal(t, 0, usage.CacheReadInputTokens)
 }

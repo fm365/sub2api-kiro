@@ -17,6 +17,11 @@ func ParseNonStreamingResponse(body []byte) Response {
 	if events := ParseEventStreamBytes(body); len(events) > 0 {
 		blocks := blocksFromStreamEvents(events)
 		text := strings.TrimSpace(textFromBlocks(blocks))
+		usage := usageFromStreamEvents(events)
+		if usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CacheCreationInputTokens == 0 && usage.CacheReadInputTokens == 0 {
+			usage.InputTokens = estimateTokens(text) / 2
+			usage.OutputTokens = estimateTokens(text)
+		}
 		stopReason := "end_turn"
 		for _, block := range blocks {
 			if block.Type == "tool_use" {
@@ -28,20 +33,53 @@ func ParseNonStreamingResponse(body []byte) Response {
 			Content:    text,
 			Blocks:     blocks,
 			StopReason: stopReason,
-			Usage: Usage{
-				InputTokens:  estimateTokens(text) / 2,
-				OutputTokens: estimateTokens(text),
-			},
+			Usage:      usage,
 		}
 	}
 	text := strings.TrimSpace(extractContentFromArbitraryJSON(body))
+	usage := usageFromArbitraryJSON(body)
+	if usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CacheCreationInputTokens == 0 && usage.CacheReadInputTokens == 0 {
+		usage.InputTokens = estimateTokens(text) / 2
+		usage.OutputTokens = estimateTokens(text)
+	}
 	return Response{
 		Content:    text,
 		StopReason: "end_turn",
-		Usage: Usage{
-			InputTokens:  estimateTokens(text) / 2,
-			OutputTokens: estimateTokens(text),
-		},
+		Usage:      usage,
+	}
+}
+
+func usageFromStreamEvents(events []StreamEvent) Usage {
+	var usage Usage
+	for _, event := range events {
+		if event.Usage != nil {
+			mergeUsage(&usage, *event.Usage)
+		}
+	}
+	return usage
+}
+
+func mergeUsage(dst *Usage, src Usage) {
+	if dst == nil {
+		return
+	}
+	if src.InputTokens > 0 {
+		dst.InputTokens = src.InputTokens
+	}
+	if src.OutputTokens > 0 {
+		dst.OutputTokens = src.OutputTokens
+	}
+	if src.CacheCreationInputTokens > 0 {
+		dst.CacheCreationInputTokens = src.CacheCreationInputTokens
+	}
+	if src.CacheReadInputTokens > 0 {
+		dst.CacheReadInputTokens = src.CacheReadInputTokens
+	}
+	if src.CacheCreation5mTokens > 0 {
+		dst.CacheCreation5mTokens = src.CacheCreation5mTokens
+	}
+	if src.CacheCreation1hTokens > 0 {
+		dst.CacheCreation1hTokens = src.CacheCreation1hTokens
 	}
 }
 
@@ -397,6 +435,9 @@ func nextJSONStart(s string, from int) int {
 		`{"input":`,
 		`{"stop":`,
 		`{"contextUsagePercentage":`,
+		`{"usage":`,
+		`{"usageMetadata":`,
+		`{"tokenUsage":`,
 	}
 	best := -1
 	for _, candidate := range candidates {
@@ -475,10 +516,110 @@ func parseEventObject(raw string) (StreamEvent, bool) {
 	if v, ok := obj["stop"].(bool); ok {
 		return StreamEvent{Type: "toolUseStop", Stop: v}, true
 	}
+	if usage, ok := usageFromEventObject(obj); ok {
+		return StreamEvent{Type: "usage", Usage: &usage}, true
+	}
 	if v, ok := obj["contextUsagePercentage"].(float64); ok {
 		return StreamEvent{Type: "contextUsage", Percentage: v}, true
 	}
 	return StreamEvent{}, false
+}
+
+func usageFromEventObject(obj map[string]any) (Usage, bool) {
+	for _, key := range []string{"usage", "usageMetadata", "tokenUsage", "metadata"} {
+		if raw, ok := obj[key]; ok {
+			if usage, found := usageFromAny(raw); found {
+				return usage, true
+			}
+		}
+	}
+	return usageFromAny(obj)
+}
+
+func usageFromArbitraryJSON(raw []byte) Usage {
+	var obj any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return Usage{}
+	}
+	usage, _ := usageFromAny(obj)
+	return usage
+}
+
+func usageFromAny(v any) (Usage, bool) {
+	obj, ok := v.(map[string]any)
+	if !ok || len(obj) == 0 {
+		return Usage{}, false
+	}
+	var usage Usage
+	found := false
+	set := func(dst *int, keys ...string) {
+		if *dst != 0 {
+			return
+		}
+		for _, key := range keys {
+			if n, ok := intFromAny(obj[key]); ok {
+				*dst = n
+				found = true
+				return
+			}
+		}
+	}
+	set(&usage.InputTokens, "input_tokens", "inputTokens", "prompt_tokens", "promptTokens", "promptTokenCount")
+	set(&usage.OutputTokens, "output_tokens", "outputTokens", "completion_tokens", "completionTokens", "outputTokenCount", "candidatesTokenCount")
+	set(&usage.CacheCreationInputTokens, "cache_creation_input_tokens", "cacheCreationInputTokens")
+	set(&usage.CacheReadInputTokens, "cache_read_input_tokens", "cacheReadInputTokens", "cached_tokens", "cachedTokens", "cachedContentTokenCount")
+	if rawCC, ok := obj["cache_creation"]; ok {
+		if cc, ok := rawCC.(map[string]any); ok {
+			if n, ok := intFromAny(cc["ephemeral_5m_input_tokens"]); ok {
+				usage.CacheCreation5mTokens = n
+				found = true
+			}
+			if n, ok := intFromAny(cc["ephemeral_1h_input_tokens"]); ok {
+				usage.CacheCreation1hTokens = n
+				found = true
+			}
+		}
+	}
+	if usage.CacheCreationInputTokens == 0 && (usage.CacheCreation5mTokens > 0 || usage.CacheCreation1hTokens > 0) {
+		usage.CacheCreationInputTokens = usage.CacheCreation5mTokens + usage.CacheCreation1hTokens
+	}
+	if found {
+		return usage, true
+	}
+	for _, child := range obj {
+		if nested, ok := usageFromAny(child); ok {
+			return nested, true
+		}
+	}
+	return Usage{}, false
+}
+
+func intFromAny(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case float32:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case int32:
+		return int(n), true
+	case json.Number:
+		if i, err := n.Int64(); err == nil {
+			return int(i), true
+		}
+		if f, err := n.Float64(); err == nil {
+			return int(f), true
+		}
+	case string:
+		var parsed int
+		if _, err := fmt.Sscanf(strings.TrimSpace(n), "%d", &parsed); err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
 }
 
 func eventStreamHeaderValue(headers []byte, targetName string) string {

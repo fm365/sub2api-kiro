@@ -161,3 +161,19 @@ func TestParseNonStreamingResponse_WebPortalCBORToolUse(t *testing.T) {
 	}
 
 }
+
+func TestParseEventStreamBytes_UsageEvent(t *testing.T) {
+	events := ParseEventStreamBytes([]byte(`noise {"usage":{"input_tokens":120,"output_tokens":9,"cache_creation_input_tokens":40,"cache_read_input_tokens":80,"cache_creation":{"ephemeral_5m_input_tokens":15,"ephemeral_1h_input_tokens":25}}}`))
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+	if events[0].Type != "usage" || events[0].Usage == nil {
+		t.Fatalf("event = %#v, want usage event", events[0])
+	}
+	if events[0].Usage.InputTokens != 120 || events[0].Usage.OutputTokens != 9 || events[0].Usage.CacheCreationInputTokens != 40 || events[0].Usage.CacheReadInputTokens != 80 {
+		t.Fatalf("usage = %#v", events[0].Usage)
+	}
+	if events[0].Usage.CacheCreation5mTokens != 15 || events[0].Usage.CacheCreation1hTokens != 25 {
+		t.Fatalf("cache creation breakdown = %#v", events[0].Usage)
+	}
+}
