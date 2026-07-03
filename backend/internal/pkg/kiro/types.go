@@ -114,6 +114,15 @@ type StreamEvent struct {
 	Stop       bool
 	Percentage float64
 	Usage      *Usage
+	Metering   *Metering
+}
+
+// Metering 表示 Kiro meteringEvent 帧中的 credit 用量。
+// 该字段只用于 Kiro 成本参考；禁止换算为 Anthropic input_tokens/output_tokens。
+type Metering struct {
+	Unit       string  `json:"unit"`
+	UnitPlural string  `json:"unitPlural"`
+	Usage      float64 `json:"usage"`
 }
 
 type ToolUse struct {

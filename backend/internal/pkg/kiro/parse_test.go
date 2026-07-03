@@ -254,3 +254,38 @@ func TestParseNonStreamingResponse_WebPortalCBORRawInputChunks(t *testing.T) {
 		t.Fatalf("tool input = %q, want %q", tool.Input, want)
 	}
 }
+
+func TestParseNonStreamingResponse_MeteringAndContextUsage(t *testing.T) {
+	body := append(kiroTestEventStreamFrame("meteringEvent", []byte(`{"unit":"credit","unitPlural":"credits","usage":0.26033884537313434}`)),
+		kiroTestEventStreamFrame("contextUsageEvent", []byte(`{"contextUsagePercentage":2.1684000492095947}`))...)
+	body = append(body, kiroTestEventStreamFrame("assistantResponseEvent", []byte(`{"content":"pong","modelId":"deepseek-3.2"}`))...)
+
+	resp := ParseNonStreamingResponse(body)
+	if resp.Content != "pong" {
+		t.Fatalf("Content = %q, want pong", resp.Content)
+	}
+
+	// 直接对底层 event stream 解析器做断言：metering 与 contextUsage 必须被识别为对应事件类型。
+	events := ParseEventStreamBytes(body)
+	var sawMetering, sawContextUsage bool
+	for _, ev := range events {
+		switch ev.Type {
+		case "metering":
+			sawMetering = true
+			if ev.Metering == nil || ev.Metering.Unit != "credit" || ev.Metering.Usage <= 0 {
+				t.Fatalf("unexpected metering event: %#v", ev)
+			}
+		case "contextUsage":
+			sawContextUsage = true
+			if ev.Percentage <= 0 {
+				t.Fatalf("unexpected contextUsage event: %#v", ev)
+			}
+		}
+	}
+	if !sawMetering {
+		t.Fatal("meteringEvent not parsed as metering event")
+	}
+	if !sawContextUsage {
+		t.Fatal("contextUsageEvent not parsed as contextUsage event")
+	}
+}

@@ -396,9 +396,20 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 			}
 			return false
 		case "contextUsage":
+			// contextUsagePercentage 仅作为上下文占用百分比参考；禁止换算成 InputTokens。
+			// 修复：之前会把 percentage*200000 当成 InputTokens 写入 message_delta.usage，
+			// 严重污染 Anthropic-compatible 客户端的 input_tokens 字段。
 			if event.Percentage > 0 {
-				const kiroContextWindow = 200000
-				usage.InputTokens = int(event.Percentage / 100.0 * kiroContextWindow)
+				usage.KiroContextUsagePercent = event.Percentage
+			}
+			return false
+		case "metering":
+			// meteringEvent 仅记录 Kiro credit 成本，禁止写入 Anthropic input/output tokens。
+			if event.Metering != nil {
+				usage.KiroCreditUsage = event.Metering.Usage
+				if event.Metering.Unit != "" {
+					usage.KiroCreditUnit = event.Metering.Unit
+				}
 			}
 			return false
 		default:

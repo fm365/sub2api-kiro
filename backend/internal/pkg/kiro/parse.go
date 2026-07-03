@@ -551,7 +551,56 @@ func parseEventObject(raw string) (StreamEvent, bool) {
 	if v, ok := obj["contextUsagePercentage"].(float64); ok {
 		return StreamEvent{Type: "contextUsage", Percentage: v}, true
 	}
+	if metering, ok := meteringFromEventObject(obj); ok {
+		return StreamEvent{Type: "metering", Metering: &metering}, true
+	}
 	return StreamEvent{}, false
+}
+
+func meteringFromEventObject(obj map[string]any) (Metering, bool) {
+	var metering Metering
+	found := false
+	// 形如 {"unit":"credit","unitPlural":"credits","usage":0.26}
+	if v, ok := obj["unit"].(string); ok && v != "" {
+		metering.Unit = v
+		found = true
+	}
+	if v, ok := obj["unitPlural"].(string); ok && v != "" {
+		metering.UnitPlural = v
+	}
+	if v, ok := obj["usage"].(float64); ok {
+		metering.Usage = v
+		found = true
+	}
+	if found {
+		return metering, true
+	}
+	// 兼容嵌套结构：{"usage":{"unit":"credit","usage":0.26}} 或 {"metering":{...}}
+	for _, key := range []string{"usage", "metering"} {
+		raw, ok := obj[key]
+		if !ok {
+			continue
+		}
+		inner, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if v, ok := inner["unit"].(string); ok && v != "" {
+			metering.Unit = v
+			found = true
+		}
+		if v, ok := inner["unitPlural"].(string); ok && v != "" {
+			metering.UnitPlural = v
+		}
+		if v, ok := inner["usage"].(float64); ok {
+			metering.Usage = v
+			found = true
+		}
+		if found {
+			return metering, true
+		}
+	}
+	return metering, false
 }
 
 func usageFromEventObject(obj map[string]any) (Usage, bool) {
