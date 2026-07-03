@@ -94,6 +94,49 @@ func TestParseNonStreamingResponse_EventStreamToolUseBlocks(t *testing.T) {
 	}
 }
 
+func TestParseNonStreamingResponse_ToolUseEventInputChunks(t *testing.T) {
+	toolID := "toolu_bdrk_014XCgDmUErpZDcUxKzer4xV"
+	chunks := []string{
+		`{"name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"{\"op","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"era","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"tions\": [{","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"\"m","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"ode\":\"Dire","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"ctor","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"y\",\"pat","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"h\":","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"\"/Users/qc/p","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"roje","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"cts/sub2ap","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"i-kiro","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"input":"\"}]}","name":"read","toolUseId":"` + toolID + `"}`,
+		`{"name":"read","stop":true,"toolUseId":"` + toolID + `"}`,
+	}
+
+	body := []byte{}
+	for _, chunk := range chunks {
+		body = append(body, kiroTestEventStreamFrame("toolUseEvent", []byte(chunk))...)
+	}
+	body = append(body, kiroTestEventStreamFrame("metadataEvent", []byte(`{"stopReason":"TOOL_USE"}`))...)
+
+	resp := ParseNonStreamingResponse(body)
+	if resp.StopReason != "tool_use" {
+		t.Fatalf("StopReason = %q, want tool_use", resp.StopReason)
+	}
+	if len(resp.Blocks) != 1 {
+		t.Fatalf("Blocks len = %d, want 1: %#v", len(resp.Blocks), resp.Blocks)
+	}
+	tool := resp.Blocks[0]
+	if tool.Type != "tool_use" || tool.ID != toolID || tool.Name != "read" {
+		t.Fatalf("unexpected tool block: %#v", tool)
+	}
+	want := `{"operations": [{"mode":"Directory","path":"/Users/qc/projects/sub2api-kiro"}]}`
+	if tool.Input != want {
+		t.Fatalf("tool input = %q, want %q", tool.Input, want)
+	}
+}
+
 func TestParseNonStreamingResponse_WebPortalCBOREventStream(t *testing.T) {
 	body := append(kiroTestWebPortalFrame("agent_message_chunk", map[string]any{
 		"text":    "Still",
@@ -177,7 +220,6 @@ func TestParseEventStreamBytes_UsageEvent(t *testing.T) {
 		t.Fatalf("cache creation breakdown = %#v", events[0].Usage)
 	}
 }
-
 
 func TestParseNonStreamingResponse_WebPortalCBORRawInputChunks(t *testing.T) {
 	// Kiro web portal emits the tool input as a series of CBOR frames, each

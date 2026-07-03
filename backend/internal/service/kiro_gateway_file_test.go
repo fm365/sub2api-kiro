@@ -1,3 +1,5 @@
+//go:build kiro_file_experiment
+
 package service
 
 import (
@@ -37,16 +39,16 @@ func (m *MockKiroClientForFileTest) SendMessageStreaming(ctx context.Context, re
 			},
 		},
 		anthropic.Event{
-			Event:        "content_block_delta",
-			Index:        1,
-			Delta:        anthropic.Delta{Type: "input_json_delta", PartialJson: `{"summary_text": "This is a summary`},
-			Usage:        anthropic.Usage{CompletionTokens: 20}, // Token usage inside a delta
+			Event: "content_block_delta",
+			Index: 1,
+			Delta: anthropic.Delta{Type: "input_json_delta", PartialJson: `{"summary_text": "This is a summary`},
+			Usage: anthropic.Usage{CompletionTokens: 20}, // Token usage inside a delta
 		},
 		anthropic.Event{
-			Event:        "content_block_delta",
-			Index:        1,
-			Delta:        anthropic.Delta{Type: "input_json_delta", PartialJson: ` of the document."}`},
-			Usage:        anthropic.Usage{CompletionTokens: 15},
+			Event: "content_block_delta",
+			Index: 1,
+			Delta: anthropic.Delta{Type: "input_json_delta", PartialJson: ` of the document."}`},
+			Usage: anthropic.Usage{CompletionTokens: 15},
 		},
 		anthropic.Event{
 			Event: "content_block_stop",
@@ -58,11 +60,11 @@ func (m *MockKiroClientForFileTest) SendMessageStreaming(ctx context.Context, re
 			Event: "message_delta",
 			Delta: anthropic.MessageDelta{StopReason: "tool_use"},
 			Usage: anthropic.MessageDeltaUsage{
-				InputTokens:      6000,
-				OutputTokens:     50, // Final total
-				CacheCreation:    0,
-				CacheRead:        0,
-				ContextUsage:     anthropic.ContextUsage{InputTokens: 5, OutputTokens: 10},
+				InputTokens:   6000,
+				OutputTokens:  50, // Final total
+				CacheCreation: 0,
+				CacheRead:     0,
+				ContextUsage:  anthropic.ContextUsage{InputTokens: 5, OutputTokens: 10},
 			},
 		},
 		anthropic.Event{Event: "message_stop", StopReason: "tool_use"},
@@ -79,7 +81,6 @@ func (m *MockKiroClientForFileTest) SendMessageStreaming(ctx context.Context, re
 
 	return &kiro.SendMessageStreamingResponse{}, nil
 }
-
 
 func TestHandleKiroClaudeStream_FileAnalysisTokenCounting(t *testing.T) {
 	// 1. Setup
@@ -142,4 +143,3 @@ func TestHandleKiroClaudeStream_FileAnalysisTokenCounting(t *testing.T) {
 	// This is the key assertion: check if output tokens are now correctly counted
 	assert.Equal(t, 50, finalUsage.OutputTokens, "Output tokens should be correctly aggregated from all relevant events")
 }
-

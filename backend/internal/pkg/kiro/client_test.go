@@ -3,6 +3,9 @@ package kiro_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -10,6 +13,59 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestListAvailableModels_UsesManagementAPI(t *testing.T) {
+	var capturedPath string
+	var capturedQuery url.Values
+	var capturedHeaders http.Header
+	var capturedBody map[string]any
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedQuery = r.URL.Query()
+		capturedHeaders = r.Header.Clone()
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&capturedBody))
+		require.Equal(t, http.MethodPost, r.Method)
+		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+		_, _ = w.Write([]byte(`{"defaultModel":{"modelId":"auto"},"models":[{"modelId":"claude-opus-4.8","modelName":"claude-opus-4.8","description":"Claude Opus 4.8 model","rateMultiplier":2.2,"rateUnit":"Credit","supportedInputTypes":["TEXT","IMAGE"],"tokenLimits":{"maxInputTokens":1000000,"maxOutputTokens":128000},"promptCaching":{"supportsPromptCaching":true,"minimumTokensPerCacheCheckpoint":1024,"maximumCacheCheckpointsPerRequest":4}}]}`))
+	}))
+	defer server.Close()
+
+	// The management URL template is a const, so route the well-known host through
+	// the test server transport by replacing the request URL in RoundTrip.
+	client := kiro.NewClient(kiro.Credentials{AccessToken: "token", Region: "us-east-1", ProfileARN: "arn:test"}, &http.Client{Transport: rewriteHostTransport{target: server.URL}})
+
+	models, _, err := client.ListAvailableModels(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, models)
+	require.Equal(t, "auto", models.DefaultModel.ModelID)
+	require.Len(t, models.Models, 1)
+	require.Equal(t, "claude-opus-4.8", models.Models[0].ModelID)
+	require.Equal(t, 1000000, models.Models[0].TokenLimits.MaxInputTokens)
+	require.True(t, models.Models[0].PromptCaching.SupportsPromptCaching)
+
+	require.Equal(t, "/", capturedPath)
+	require.Equal(t, "KIRO_CLI", capturedQuery.Get("origin"))
+	require.Equal(t, "arn:test", capturedQuery.Get("profileArn"))
+	require.Equal(t, "KIRO_CLI", capturedBody["origin"])
+	require.Equal(t, "arn:test", capturedBody["profileArn"])
+	require.Equal(t, "application/x-amz-json-1.0", capturedHeaders.Get("Content-Type"))
+	require.Equal(t, "AmazonCodeWhispererService.ListAvailableModels", capturedHeaders.Get("x-amz-target"))
+	require.Equal(t, "Bearer token", capturedHeaders.Get("Authorization"))
+	require.Equal(t, "attempt=1; max=3", capturedHeaders.Get("amz-sdk-request"))
+}
+
+type rewriteHostTransport struct{ target string }
+
+func (t rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	target, err := url.Parse(t.target)
+	if err != nil {
+		return nil, err
+	}
+	req.URL.Scheme = target.Scheme
+	req.URL.Host = target.Host
+	return http.DefaultTransport.RoundTrip(req)
+}
 
 func TestBuildHTTPRequest_StreamUsesGenerateAssistantResponse(t *testing.T) {
 	client := kiro.NewClient(kiro.Credentials{AccessToken: "token", Region: "us-east-1"}, nil)
@@ -25,9 +81,10 @@ func TestBuildHTTPRequest_StreamUsesGenerateAssistantResponse(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "claude-sonnet-4.5", upstreamModel)
-	require.Contains(t, httpReq.URL.String(), "/generateAssistantResponse")
+	require.Equal(t, "runtime.us-east-1.kiro.dev", httpReq.URL.Host)
+	require.Equal(t, "AmazonCodeWhispererStreamingService.GenerateAssistantResponse", httpReq.Header.Get("x-amz-target"))
 	require.Equal(t, "application/vnd.amazon.eventstream", httpReq.Header.Get("Accept"))
-	require.Equal(t, "application/json", httpReq.Header.Get("Content-Type"))
+	require.Equal(t, "application/x-amz-json-1.0", httpReq.Header.Get("Content-Type"))
 	require.Equal(t, "keep-alive", strings.ToLower(httpReq.Header.Get("Connection")))
 	require.True(t, strings.HasPrefix(httpReq.Header.Get("Authorization"), "Bearer "))
 }
@@ -46,11 +103,51 @@ func TestBuildHTTPRequest_NonStreamUsesGenerateAssistantResponse(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "claude-sonnet-4.5", upstreamModel)
-	require.Contains(t, httpReq.URL.String(), "/generateAssistantResponse")
+	require.Equal(t, "runtime.us-east-1.kiro.dev", httpReq.URL.Host)
+	require.Equal(t, "AmazonCodeWhispererStreamingService.GenerateAssistantResponse", httpReq.Header.Get("x-amz-target"))
 	require.Equal(t, "application/json", httpReq.Header.Get("Accept"))
-	require.Equal(t, "application/json", httpReq.Header.Get("Content-Type"))
+	require.Equal(t, "application/x-amz-json-1.0", httpReq.Header.Get("Content-Type"))
 	require.Equal(t, "close", strings.ToLower(httpReq.Header.Get("Connection")))
 	require.True(t, strings.HasPrefix(httpReq.Header.Get("Authorization"), "Bearer "))
+}
+
+func TestBuildRequestBody_UsesKiroCLIOriginAndAgentTaskType(t *testing.T) {
+	client := kiro.NewClient(kiro.Credentials{AccessToken: "token", Region: "us-east-1"}, nil)
+	body, _ := client.BuildRequestBody(kiro.Request{
+		Model: "claude-opus-4-7",
+		Messages: []kiro.Message{{
+			Role:    "user",
+			Content: "hi",
+		}},
+	})
+
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+	require.Equal(t, "vibe", gjson.GetBytes(payload, "conversationState.agentTaskType").String())
+	require.Equal(t, "KIRO_CLI", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.origin").String())
+	require.Equal(t, "xhigh", gjson.GetBytes(payload, "additionalModelRequestFields.output_config.effort").String())
+	require.NotContains(t, string(payload), "AI_EDITOR")
+}
+
+func TestBuildRequestBody_IncludesKiroCLIEnvState(t *testing.T) {
+	client := kiro.NewClient(kiro.Credentials{AccessToken: "token", Region: "us-east-1"}, nil)
+	body, _ := client.BuildRequestBody(kiro.Request{
+		Model: "claude-opus-4-7",
+		Messages: []kiro.Message{{
+			Role:    "user",
+			Content: "hi",
+		}},
+		Tools: []kiro.Tool{{
+			Name:        "read",
+			Description: "Read files",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}},
+	})
+
+	payload, err := json.Marshal(body)
+	require.NoError(t, err)
+	require.NotEmpty(t, gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.envState.currentWorkingDirectory").String())
+	require.NotEmpty(t, gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.envState.operatingSystem").String())
 }
 
 func TestBuildRequestBody_ToolInputSchemaWrappedAsJSONDocument(t *testing.T) {
@@ -106,7 +203,7 @@ func TestBuildRequestBody_DoesNotTextifyHistoricalToolBlocks(t *testing.T) {
 	require.Equal(t, "continue", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.content").String())
 	require.Equal(t, "toolu_1", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.toolUseId").String())
 	require.Equal(t, "success", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.status").String())
-	require.Equal(t, "/tmp/repo\ntotal 1", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.content.0.json.text").String())
+	require.Equal(t, "/tmp/repo\ntotal 1", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.content.0.text").String())
 }
 
 func TestBuildRequestBody_ToolResultOnlyCurrentMessageKeepsEmptyContent(t *testing.T) {
@@ -124,7 +221,7 @@ func TestBuildRequestBody_ToolResultOnlyCurrentMessageKeepsEmptyContent(t *testi
 	require.Equal(t, "", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.content").String())
 	require.Equal(t, "toolu_2", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.toolUseId").String())
 	require.Equal(t, "success", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.status").String())
-	require.Equal(t, "/tmp/repo", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.content.0.json.text").String())
+	require.Equal(t, "/tmp/repo", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.content.0.text").String())
 }
 
 func TestBuildRequestBody_ToolResultErrorStatus(t *testing.T) {

@@ -979,8 +979,12 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 	if platform == service.PlatformKiro {
-		models := make([]claude.Model, 0, len(kiro.Models))
-		for _, modelID := range kiro.Models {
+		kiroModels := h.gatewayService.GetKiroAvailableModels(c.Request.Context(), groupID)
+		if len(kiroModels) == 0 {
+			kiroModels = kiro.Models
+		}
+		models := make([]claude.Model, 0, len(kiroModels))
+		for _, modelID := range kiroModels {
 			models = append(models, claude.Model{
 				ID:          modelID,
 				Type:        "model",

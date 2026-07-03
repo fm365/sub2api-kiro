@@ -59,6 +59,38 @@ type Usage struct {
 	CacheCreation1hTokens    int `json:"-"`
 }
 
+type AvailableModelsResponse struct {
+	DefaultModel *AvailableModelDefault `json:"defaultModel,omitempty"`
+	Models       []AvailableModel       `json:"models,omitempty"`
+}
+
+type AvailableModelDefault struct {
+	ModelID string `json:"modelId,omitempty"`
+}
+
+type AvailableModel struct {
+	ModelID                            string              `json:"modelId,omitempty"`
+	ModelName                          string              `json:"modelName,omitempty"`
+	Description                        string              `json:"description,omitempty"`
+	RateMultiplier                     float64             `json:"rateMultiplier,omitempty"`
+	RateUnit                           string              `json:"rateUnit,omitempty"`
+	SupportedInputTypes                []string            `json:"supportedInputTypes,omitempty"`
+	TokenLimits                        *ModelTokenLimits   `json:"tokenLimits,omitempty"`
+	PromptCaching                      *ModelPromptCaching `json:"promptCaching,omitempty"`
+	AdditionalModelRequestFieldsSchema json.RawMessage     `json:"additionalModelRequestFieldsSchema,omitempty"`
+}
+
+type ModelTokenLimits struct {
+	MaxInputTokens  int `json:"maxInputTokens,omitempty"`
+	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+}
+
+type ModelPromptCaching struct {
+	SupportsPromptCaching             bool `json:"supportsPromptCaching"`
+	MaximumCacheCheckpointsPerRequest int  `json:"maximumCacheCheckpointsPerRequest,omitempty"`
+	MinimumTokensPerCacheCheckpoint   int  `json:"minimumTokensPerCacheCheckpoint,omitempty"`
+}
+
 type Response struct {
 	Content    string  `json:"content,omitempty"`
 	Blocks     []Block `json:"blocks,omitempty"`

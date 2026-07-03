@@ -29,6 +29,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -9426,6 +9427,105 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		modelsListCacheStoreTotal.Add(1)
 	}
 	return cloneStringSlice(models)
+}
+
+func (s *GatewayService) GetKiroAvailableModels(ctx context.Context, groupID *int64) []string {
+	if s == nil || s.accountRepo == nil {
+		return nil
+	}
+	var accounts []Account
+	var err error
+	if groupID != nil {
+		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, PlatformKiro)
+	} else {
+		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, PlatformKiro)
+	}
+	if err != nil || len(accounts) == 0 {
+		return nil
+	}
+	for i := range accounts {
+		account := &accounts[i]
+		client := kiro.NewClient(kiroCredentialsFromAccount(account), nil)
+		refresh, err := client.EnsureAccessToken(ctx)
+		if err != nil {
+			continue
+		}
+		if refresh.Refreshed {
+			persistKiroCredentials(ctx, s.accountRepo, account, refresh.Credentials)
+			client = kiro.NewClient(refresh.Credentials, nil)
+		}
+		if s.httpUpstream == nil {
+			modelsResp, _, err := client.ListAvailableModels(ctx)
+			if err != nil || modelsResp == nil || len(modelsResp.Models) == 0 {
+				continue
+			}
+			if models := kiroAvailableModelIDs(modelsResp); len(models) > 0 {
+				return models
+			}
+			continue
+		}
+		req, err := client.BuildListAvailableModelsRequest(ctx)
+		if err != nil {
+			continue
+		}
+		proxyURL := ""
+		if account.ProxyID != nil && account.Proxy != nil {
+			proxyURL = account.Proxy.URL()
+		}
+		var tlsProfile *tlsfingerprint.Profile
+		if s.tlsFPProfileService != nil {
+			tlsProfile = s.tlsFPProfileService.ResolveTLSProfile(account)
+		}
+		resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		_ = resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			continue
+		}
+		modelsResp, err := kiro.ParseAvailableModelsResponse(body)
+		if err != nil || modelsResp == nil || len(modelsResp.Models) == 0 {
+			continue
+		}
+		models := kiroAvailableModelIDs(modelsResp)
+		if len(models) > 0 {
+			return models
+		}
+	}
+	return nil
+}
+
+func kiroAvailableModelIDs(modelsResp *kiro.AvailableModelsResponse) []string {
+	if modelsResp == nil || len(modelsResp.Models) == 0 {
+		return nil
+	}
+	models := make([]string, 0, len(modelsResp.Models))
+	seen := make(map[string]struct{}, len(modelsResp.Models))
+	for _, model := range modelsResp.Models {
+		id := strings.TrimSpace(model.ModelID)
+		if id == "" {
+			continue
+		}
+		external := kiroExternalModelID(id)
+		if _, ok := seen[external]; ok {
+			continue
+		}
+		seen[external] = struct{}{}
+		models = append(models, external)
+	}
+	sort.Strings(models)
+	return models
+}
+
+func kiroExternalModelID(upstream string) string {
+	for external, mapped := range kiro.ModelMapping {
+		if mapped == upstream && !strings.HasSuffix(external, "-thinking") {
+			return external
+		}
+	}
+	return strings.ReplaceAll(upstream, ".", "-")
 }
 
 func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform string) {

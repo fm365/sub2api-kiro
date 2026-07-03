@@ -9,7 +9,8 @@ const (
 
 	AuthServiceEndpointTemplate = "https://prod.%s.auth.desktop.kiro.dev"
 	RefreshURLTemplate          = "https://prod.%s.auth.desktop.kiro.dev/refreshToken"
-	CodeWhispererURLTmpl        = "https://codewhisperer.%s.amazonaws.com/generateAssistantResponse"
+	ManagementURLTemplate       = "https://management.%s.kiro.dev/"
+	RuntimeURLTemplate          = "https://runtime.%s.kiro.dev/"
 	AmazonQURLTmpl              = "https://codewhisperer.%s.amazonaws.com/SendMessageStreaming"
 	WebPortalStreamURL          = "https://app.kiro.dev/service/KiroWebPortalService/operation/StreamSendMessage"
 	UsageLimitsURLTemplate      = "https://q.%s.amazonaws.com/getUsageLimits"
@@ -18,6 +19,7 @@ const (
 	DefaultModelName   = "claude-sonnet-4-5"
 	DefaultHealthModel = "claude-haiku-4-5"
 	OriginAIEditor     = "AI_EDITOR"
+	OriginKiroCLI      = "KIRO_CLI"
 	ChatTriggerManual  = "MANUAL"
 	KiroIDEVersion     = "0.7.5"
 	DefaultMaxTokens   = 200000

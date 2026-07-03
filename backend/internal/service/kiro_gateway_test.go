@@ -153,12 +153,64 @@ func TestKiroRequestFromClaudeCodeBodyKeepsClaudeCodeFields(t *testing.T) {
 	if got := gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.status").String(); got != "success" {
 		t.Fatalf("current toolResult status = %q, want success. payload=%s", got, payloadText)
 	}
-	if got := gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.content.0.json.text").String(); got != "/tmp/repo" {
+	if got := gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults.0.content.0.text").String(); got != "/tmp/repo" {
 		t.Fatalf("current toolResult content text = %q, want /tmp/repo. payload=%s", got, payloadText)
 	}
 	if got := gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.userInputMessageContext.tools.0.toolSpecification.inputSchema.json.type").String(); got != "object" {
 		t.Fatalf("tool inputSchema.json.type = %q, want object. payload=%s", got, payloadText)
 	}
+}
+
+func TestGetKiroAvailableModels_UsesManagementAPI(t *testing.T) {
+	upstream := &kiroHTTPUpstreamRecorder{}
+	upstream.addResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/x-amz-json-1.0"}}, `{"defaultModel":{"modelId":"auto"},"models":[{"modelId":"claude-opus-4.8"},{"modelId":"claude-opus-4.7"}]}`)
+	svc := &GatewayService{
+		accountRepo: &kiroModelsAccountRepoStub{accounts: []Account{{
+			ID:          7,
+			Platform:    PlatformKiro,
+			Status:      "normal",
+			Schedulable: true,
+			Credentials: map[string]any{
+				"access_token": "token",
+				"profile_arn":  "arn:test",
+				"region":       "us-east-1",
+			},
+		}}},
+		httpUpstream: upstream,
+	}
+
+	models := svc.GetKiroAvailableModels(context.Background(), nil)
+	require.Equal(t, []string{"claude-opus-4-7", "claude-opus-4-8"}, models)
+	require.Len(t, upstream.requests, 1)
+	req := upstream.requests[0]
+	require.Equal(t, "management.us-east-1.kiro.dev", req.URL.Host)
+	require.Equal(t, "KIRO_CLI", req.URL.Query().Get("origin"))
+	require.Equal(t, "arn:test", req.URL.Query().Get("profileArn"))
+	require.Equal(t, "AmazonCodeWhispererService.ListAvailableModels", req.Header.Get("x-amz-target"))
+	require.JSONEq(t, `{"origin":"KIRO_CLI","profileArn":"arn:test"}`, string(upstream.bodies[0]))
+}
+
+type kiroModelsAccountRepoStub struct {
+	AccountRepository
+	accounts []Account
+}
+
+func (r *kiroModelsAccountRepoStub) ListSchedulableByPlatform(ctx context.Context, platform string) ([]Account, error) {
+	out := make([]Account, 0, len(r.accounts))
+	for _, account := range r.accounts {
+		if account.Platform == platform {
+			out = append(out, account)
+		}
+	}
+	return out, nil
+}
+
+func (r *kiroModelsAccountRepoStub) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
+	return r.ListSchedulableByPlatform(ctx, platform)
+}
+
+func (r *kiroModelsAccountRepoStub) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	return nil
 }
 
 func TestHandleKiroClaudeStreamEmitsClaudeCodeToolUseEvents(t *testing.T) {
@@ -333,7 +385,7 @@ func TestKiroOpsCapturePreservesRequestBodyAndRecordsHTTPError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	upstreamReq := httptest.NewRequest(http.MethodPost, "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse", strings.NewReader(`{"conversationState":{"currentMessage":{}}}`))
+	upstreamReq := httptest.NewRequest(http.MethodPost, "https://runtime.us-east-1.kiro.dev/", strings.NewReader(`{"conversationState":{"currentMessage":{}}}`))
 
 	captureKiroUpstreamRequestBody(c, upstreamReq)
 	bodyAfterCapture, err := io.ReadAll(upstreamReq.Body)
@@ -372,7 +424,7 @@ func TestKiroOpsCapturePreservesRequestBodyAndRecordsHTTPError(t *testing.T) {
 	if event.Platform != PlatformKiro || event.AccountID != 123 || event.AccountName != "kiro-account" || event.UpstreamRequestID != "kiro-rid-1" || event.Kind != "http_error" {
 		t.Fatalf("unexpected event metadata: %#v", event)
 	}
-	if !strings.Contains(event.UpstreamURL, "codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse") {
+	if !strings.Contains(event.UpstreamURL, "runtime.us-east-1.kiro.dev") {
 		t.Fatalf("unexpected upstream url: %q", event.UpstreamURL)
 	}
 	if !strings.Contains(event.UpstreamRequestBody, "conversationState") {
