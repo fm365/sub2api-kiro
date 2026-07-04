@@ -22,6 +22,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -58,6 +59,7 @@ type AccountHandler struct {
 	sessionLimitCache       service.SessionLimitCache
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
+	gatewayService          *service.GatewayService
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -91,6 +93,14 @@ func NewAccountHandler(
 		rpmCache:                rpmCache,
 		tokenCacheInvalidator:   tokenCacheInvalidator,
 	}
+}
+
+// SetGatewayService injects the gateway service after construction. It allows the admin
+// account handler to call gateway-side helpers (e.g. live Kiro ListAvailableModels)
+// without forcing wire to resolve a cyclic initialization order between admin handlers
+// and the gateway service.
+func (h *AccountHandler) SetGatewayService(svc *service.GatewayService) {
+	h.gatewayService = svc
 }
 
 // CreateAccountRequest represents create account request
@@ -1941,6 +1951,37 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 					CreatedAt:   "",
 				})
 			}
+		}
+		response.Success(c, models)
+		return
+	}
+
+	// Handle Kiro accounts: try live Kiro ListAvailableModels API first,
+	// then fall back to the account's model_mapping, then to kiro.Models.
+	if account.Platform == service.PlatformKiro {
+		var modelIDs []string
+		if h.gatewayService != nil {
+			modelIDs = h.gatewayService.GetKiroAvailableModels(c.Request.Context(), nil)
+		}
+		if len(modelIDs) == 0 {
+			mapping := account.GetModelMapping()
+			if len(mapping) > 0 {
+				for m := range mapping {
+					modelIDs = append(modelIDs, m)
+				}
+			}
+		}
+		if len(modelIDs) == 0 {
+			modelIDs = kiro.Models
+		}
+		models := make([]claude.Model, 0, len(modelIDs))
+		for _, id := range modelIDs {
+			models = append(models, claude.Model{
+				ID:          id,
+				Type:        "model",
+				DisplayName: id,
+				CreatedAt:   "",
+			})
 		}
 		response.Success(c, models)
 		return

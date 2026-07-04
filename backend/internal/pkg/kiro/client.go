@@ -575,14 +575,7 @@ func userInputMessageContext(tools []Tool, toolResults []any) map[string]any {
 }
 
 func additionalModelRequestFields(modelID string) map[string]any {
-	if !strings.HasPrefix(modelID, "claude-opus-") && !strings.HasPrefix(modelID, "claude-sonnet-") {
-		return nil
-	}
-	return map[string]any{
-		"output_config": map[string]any{
-			"effort": "xhigh",
-		},
-	}
+	return nil
 }
 
 func kiroEnvState() map[string]any {
