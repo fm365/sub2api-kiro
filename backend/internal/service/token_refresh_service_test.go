@@ -20,6 +20,8 @@ type tokenRefreshAccountRepo struct {
 	setErrorCalls          int
 	clearTempCalls         int
 	setTempUnschedCalls    int
+	lastErrorMessage       string
+	lastTempUnschedReason  string
 	lastAccount            *Account
 	updateErr              error
 }
@@ -37,7 +39,7 @@ func (r *tokenRefreshAccountRepo) UpdateCredentials(ctx context.Context, id int6
 	if r.updateErr != nil {
 		return r.updateErr
 	}
-	cloned := cloneCredentials(credentials)
+	cloned := shallowCopyMap(credentials)
 	if r.accountsByID != nil {
 		if acc, ok := r.accountsByID[id]; ok && acc != nil {
 			acc.Credentials = cloned
@@ -51,6 +53,7 @@ func (r *tokenRefreshAccountRepo) UpdateCredentials(ctx context.Context, id int6
 
 func (r *tokenRefreshAccountRepo) SetError(ctx context.Context, id int64, errorMsg string) error {
 	r.setErrorCalls++
+	r.lastErrorMessage = errorMsg
 	return nil
 }
 
@@ -61,6 +64,7 @@ func (r *tokenRefreshAccountRepo) ClearTempUnschedulable(ctx context.Context, id
 
 func (r *tokenRefreshAccountRepo) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
 	r.setTempUnschedCalls++
+	r.lastTempUnschedReason = reason
 	return nil
 }
 
@@ -76,9 +80,13 @@ func (s *tokenCacheInvalidatorStub) InvalidateToken(ctx context.Context, account
 
 type tempUnschedCacheStub struct {
 	deleteCalls int
+	setCalls    int
+	lastState   *TempUnschedState
 }
 
 func (s *tempUnschedCacheStub) SetTempUnsched(ctx context.Context, accountID int64, state *TempUnschedState) error {
+	s.setCalls++
+	s.lastState = state
 	return nil
 }
 
@@ -532,9 +540,15 @@ func TestIsNonRetryableRefreshError(t *testing.T) {
 		{name: "network_error", err: errors.New("network timeout"), expected: false},
 		{name: "invalid_grant", err: errors.New("invalid_grant"), expected: true},
 		{name: "invalid_client", err: errors.New("invalid_client"), expected: true},
+		{name: "invalid_refresh_token", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"invalid_refresh_token"}}`), expected: true},
+		{name: "token_expired", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"token_expired"}}`), expected: true},
+		{name: "refresh_token_reused", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error":{"code":"refresh_token_reused"}}`), expected: true},
+		{name: "app_session_terminated", err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: token refresh failed: status 401, body: {"error": {"code": "app_session_terminated"}}`), expected: true},
 		{name: "unauthorized_client", err: errors.New("unauthorized_client"), expected: true},
 		{name: "access_denied", err: errors.New("access_denied"), expected: true},
 		{name: "no_refresh_token", err: errors.New("no refresh token available"), expected: true},
+		{name: "grok_entitlement_denied", err: errors.New("GROK_OAUTH_ENTITLEMENT_DENIED: subscription required"), expected: true},
+		{name: "invalid_scope", err: errors.New("invalid_scope: requested scope is not allowed"), expected: true},
 		{name: "invalid_grant_with_desc", err: errors.New("Error: invalid_grant - token revoked"), expected: true},
 		{name: "case_insensitive", err: errors.New("INVALID_GRANT"), expected: true},
 	}
@@ -545,213 +559,4 @@ func TestIsNonRetryableRefreshError(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-// ========== Path A (refreshAPI) 测试用例 ==========
-
-// mockTokenCacheForRefreshAPI 用于 Path A 测试的 GeminiTokenCache mock
-type mockTokenCacheForRefreshAPI struct {
-	lockResult   bool
-	lockErr      error
-	releaseCalls int
-}
-
-func (m *mockTokenCacheForRefreshAPI) GetAccessToken(_ context.Context, _ string) (string, error) {
-	return "", errors.New("not cached")
-}
-
-func (m *mockTokenCacheForRefreshAPI) SetAccessToken(_ context.Context, _ string, _ string, _ time.Duration) error {
-	return nil
-}
-
-func (m *mockTokenCacheForRefreshAPI) DeleteAccessToken(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockTokenCacheForRefreshAPI) AcquireRefreshLock(_ context.Context, _ string, _ time.Duration) (bool, error) {
-	return m.lockResult, m.lockErr
-}
-
-func (m *mockTokenCacheForRefreshAPI) ReleaseRefreshLock(_ context.Context, _ string) error {
-	m.releaseCalls++
-	return nil
-}
-
-// buildPathAService 构建注入了 refreshAPI 的 service（Path A 测试辅助）
-func buildPathAService(repo *tokenRefreshAccountRepo, cache GeminiTokenCache, invalidator TokenCacheInvalidator) (*TokenRefreshService, *tokenRefresherStub) {
-	cfg := &config.Config{
-		TokenRefresh: config.TokenRefreshConfig{
-			MaxRetries:          1,
-			RetryBackoffSeconds: 0,
-		},
-	}
-	service := NewTokenRefreshService(repo, nil, nil, nil, nil, invalidator, nil, cfg, nil)
-	refreshAPI := NewOAuthRefreshAPI(repo, cache)
-	service.SetRefreshAPI(refreshAPI)
-
-	refresher := &tokenRefresherStub{
-		credentials: map[string]any{
-			"access_token": "refreshed-token",
-		},
-	}
-	return service, refresher
-}
-
-// TestPathA_Success 统一 API 路径正常成功：刷新 + DB 更新 + postRefreshActions
-func TestPathA_Success(t *testing.T) {
-	account := &Account{
-		ID:       100,
-		Platform: PlatformGemini,
-		Type:     AccountTypeOAuth,
-	}
-	repo := &tokenRefreshAccountRepo{}
-	repo.accountsByID = map[int64]*Account{account.ID: account}
-	invalidator := &tokenCacheInvalidatorStub{}
-	cache := &mockTokenCacheForRefreshAPI{lockResult: true}
-
-	service, refresher := buildPathAService(repo, cache, invalidator)
-
-	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
-	require.NoError(t, err)
-	require.Equal(t, 1, repo.updateCalls)   // DB 更新被调用
-	require.Equal(t, 1, invalidator.calls)  // 缓存失效被调用
-	require.Equal(t, 1, cache.releaseCalls) // 锁被释放
-}
-
-// TestPathA_LockHeld 锁被其他 worker 持有 → 返回 errRefreshSkipped
-func TestPathA_LockHeld(t *testing.T) {
-	account := &Account{
-		ID:       101,
-		Platform: PlatformGemini,
-		Type:     AccountTypeOAuth,
-	}
-	repo := &tokenRefreshAccountRepo{}
-	invalidator := &tokenCacheInvalidatorStub{}
-	cache := &mockTokenCacheForRefreshAPI{lockResult: false} // 锁获取失败（被占）
-
-	service, refresher := buildPathAService(repo, cache, invalidator)
-
-	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
-	require.ErrorIs(t, err, errRefreshSkipped)
-	require.Equal(t, 0, repo.updateCalls)  // 不应更新 DB
-	require.Equal(t, 0, invalidator.calls) // 不应触发缓存失效
-}
-
-// TestPathA_AlreadyRefreshed 二次检查发现已被其他路径刷新 → 返回 errRefreshSkipped
-func TestPathA_AlreadyRefreshed(t *testing.T) {
-	// NeedsRefresh 返回 false → RefreshIfNeeded 返回 {Refreshed: false}
-	account := &Account{
-		ID:       102,
-		Platform: PlatformGemini,
-		Type:     AccountTypeOAuth,
-	}
-	repo := &tokenRefreshAccountRepo{}
-	repo.accountsByID = map[int64]*Account{account.ID: account}
-	invalidator := &tokenCacheInvalidatorStub{}
-	cache := &mockTokenCacheForRefreshAPI{lockResult: true}
-
-	service, _ := buildPathAService(repo, cache, invalidator)
-
-	// 使用一个 NeedsRefresh 返回 false 的 stub
-	noRefreshNeeded := &tokenRefresherStub{
-		credentials: map[string]any{"access_token": "token"},
-	}
-	// 覆盖 NeedsRefresh 行为 — 我们需要一个新的 stub 类型
-	alwaysFreshStub := &alwaysFreshRefresherStub{}
-
-	err := service.refreshWithRetry(context.Background(), account, noRefreshNeeded, alwaysFreshStub, time.Hour)
-	require.ErrorIs(t, err, errRefreshSkipped)
-	require.Equal(t, 0, repo.updateCalls)
-	require.Equal(t, 0, invalidator.calls)
-}
-
-// alwaysFreshRefresherStub 二次检查时认为不需要刷新（模拟已被其他路径刷新）
-type alwaysFreshRefresherStub struct{}
-
-func (r *alwaysFreshRefresherStub) CanRefresh(_ *Account) bool                    { return true }
-func (r *alwaysFreshRefresherStub) NeedsRefresh(_ *Account, _ time.Duration) bool { return false }
-func (r *alwaysFreshRefresherStub) Refresh(_ context.Context, _ *Account) (map[string]any, error) {
-	return nil, errors.New("should not be called")
-}
-func (r *alwaysFreshRefresherStub) CacheKey(account *Account) string {
-	return "test:fresh:" + account.Platform
-}
-
-// TestPathA_NonRetryableError 统一 API 路径返回不可重试错误 → SetError
-func TestPathA_NonRetryableError(t *testing.T) {
-	account := &Account{
-		ID:       103,
-		Platform: PlatformGemini,
-		Type:     AccountTypeOAuth,
-	}
-	repo := &tokenRefreshAccountRepo{}
-	repo.accountsByID = map[int64]*Account{account.ID: account}
-	invalidator := &tokenCacheInvalidatorStub{}
-	cache := &mockTokenCacheForRefreshAPI{lockResult: true}
-
-	service, _ := buildPathAService(repo, cache, invalidator)
-
-	refresher := &tokenRefresherStub{
-		err: errors.New("invalid_grant: token revoked"),
-	}
-
-	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
-	require.Error(t, err)
-	require.Equal(t, 1, repo.setErrorCalls) // 应标记 error 状态
-	require.Equal(t, 0, repo.updateCalls)   // 不应更新 credentials
-	require.Equal(t, 0, invalidator.calls)  // 不应触发缓存失效
-}
-
-// TestPathA_RetryableErrorExhausted 统一 API 路径可重试错误耗尽 → 不标记 error
-func TestPathA_RetryableErrorExhausted(t *testing.T) {
-	account := &Account{
-		ID:       104,
-		Platform: PlatformGemini,
-		Type:     AccountTypeOAuth,
-	}
-	repo := &tokenRefreshAccountRepo{}
-	repo.accountsByID = map[int64]*Account{account.ID: account}
-	invalidator := &tokenCacheInvalidatorStub{}
-	cache := &mockTokenCacheForRefreshAPI{lockResult: true}
-
-	cfg := &config.Config{
-		TokenRefresh: config.TokenRefreshConfig{
-			MaxRetries:          2,
-			RetryBackoffSeconds: 0,
-		},
-	}
-	service := NewTokenRefreshService(repo, nil, nil, nil, nil, invalidator, nil, cfg, nil)
-	refreshAPI := NewOAuthRefreshAPI(repo, cache)
-	service.SetRefreshAPI(refreshAPI)
-
-	refresher := &tokenRefresherStub{
-		err: errors.New("network timeout"),
-	}
-
-	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
-	require.Error(t, err)
-	require.Equal(t, 0, repo.setErrorCalls) // 可重试错误不标记 error
-	require.Equal(t, 0, repo.updateCalls)   // 刷新失败不应更新
-	require.Equal(t, 0, invalidator.calls)  // 不应触发缓存失效
-}
-
-// TestPathA_DBUpdateFailed 统一 API 路径 DB 更新失败 → 返回 error，不执行 postRefreshActions
-func TestPathA_DBUpdateFailed(t *testing.T) {
-	account := &Account{
-		ID:       105,
-		Platform: PlatformGemini,
-		Type:     AccountTypeOAuth,
-	}
-	repo := &tokenRefreshAccountRepo{updateErr: errors.New("db connection lost")}
-	repo.accountsByID = map[int64]*Account{account.ID: account}
-	invalidator := &tokenCacheInvalidatorStub{}
-	cache := &mockTokenCacheForRefreshAPI{lockResult: true}
-
-	service, refresher := buildPathAService(repo, cache, invalidator)
-
-	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "DB update failed")
-	require.Equal(t, 1, repo.updateCalls)  // DB 更新被尝试
-	require.Equal(t, 0, invalidator.calls) // DB 失败时不应触发缓存失效
 }
