@@ -950,6 +950,30 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
+	if platform == service.PlatformKiro {
+		kiroModels := h.gatewayService.GetKiroAvailableModels(c.Request.Context(), groupID)
+		if len(kiroModels) == 0 {
+			kiroModels = h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+		}
+		if len(kiroModels) == 0 {
+			kiroModels = kiro.Models
+		}
+		models := make([]claude.Model, 0, len(kiroModels))
+		for _, modelID := range kiroModels {
+			models = append(models, claude.Model{
+				ID:          modelID,
+				Type:        "model",
+				DisplayName: modelID,
+				CreatedAt:   "2024-01-01T00:00:00Z",
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"object": "list",
+			"data":   models,
+		})
+		return
+	}
+
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 
 	if len(availableModels) > 0 {
@@ -978,23 +1002,6 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		})
 		return
 	}
-	if platform == service.PlatformKiro {
-		models := make([]claude.Model, 0, len(kiro.Models))
-		for _, modelID := range kiro.Models {
-			models = append(models, claude.Model{
-				ID:          modelID,
-				Type:        "model",
-				DisplayName: modelID,
-				CreatedAt:   "2024-01-01T00:00:00Z",
-			})
-		}
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   models,
-		})
-		return
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
 		"data":   claude.DefaultModels,

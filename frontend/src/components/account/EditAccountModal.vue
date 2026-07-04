@@ -976,6 +976,88 @@
         </div>
       </div>
 
+      <!-- Kiro compatibility switches -->
+      <div v-if="account.platform === 'kiro'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <label class="input-label">{{ t('admin.accounts.kiro.compatibilityOptions') }}</label>
+        <div class="space-y-3">
+          <div class="rounded-lg border border-teal-200 bg-teal-50 p-3 dark:border-teal-800/50 dark:bg-teal-900/20">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <label class="input-label mb-0">{{ t('admin.accounts.kiro.passthrough') }}</label>
+                <p class="mt-1 text-xs text-teal-700 dark:text-teal-300">
+                  {{ t('admin.accounts.kiro.passthroughDesc') }}
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="kiroPassthroughEnabled = !kiroPassthroughEnabled"
+                :class="[
+                  'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2',
+                  kiroPassthroughEnabled ? 'bg-teal-600' : 'bg-gray-200 dark:bg-dark-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    kiroPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                />
+              </button>
+            </div>
+          </div>
+          <div class="rounded-lg border border-teal-200 bg-teal-50 p-3 dark:border-teal-800/50 dark:bg-teal-900/20">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <label class="input-label mb-0">{{ t('admin.accounts.kiro.stripToolsOnFail') }}</label>
+                <p class="mt-1 text-xs text-teal-700 dark:text-teal-300">
+                  {{ t('admin.accounts.kiro.stripToolsOnFailDesc') }}
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="kiroStripToolsOnFailEnabled = !kiroStripToolsOnFailEnabled"
+                :class="[
+                  'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2',
+                  kiroStripToolsOnFailEnabled ? 'bg-teal-600' : 'bg-gray-200 dark:bg-dark-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    kiroStripToolsOnFailEnabled ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                />
+              </button>
+            </div>
+          </div>
+          <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/50 dark:bg-amber-900/20">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <label class="input-label mb-0">{{ t('admin.accounts.kiro.webPortal') }}</label>
+                <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                  {{ t('admin.accounts.kiro.webPortalDesc') }}
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="kiroWebPortalEnabled = !kiroWebPortalEnabled"
+                :class="[
+                  'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2',
+                  kiroWebPortalEnabled ? 'bg-amber-600' : 'bg-gray-200 dark:bg-dark-600'
+                ]"
+              >
+                <span
+                  :class="[
+                    'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                    kiroWebPortalEnabled ? 'translate-x-5' : 'translate-x-0'
+                  ]"
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Antigravity/Kiro model restriction (mapping mode only) -->
       <div v-if="account.platform === 'antigravity' || account.platform === 'kiro'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -2350,6 +2432,9 @@ const codexCLIOnlyEnabled = ref(false)
 type CodexImageGenerationBridgeMode = 'inherit' | 'enabled' | 'disabled'
 const codexImageGenerationBridgeMode = ref<CodexImageGenerationBridgeMode>('inherit')
 const anthropicPassthroughEnabled = ref(false)
+const kiroPassthroughEnabled = ref(false)
+const kiroStripToolsOnFailEnabled = ref(false)
+const kiroWebPortalEnabled = ref(false)
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
 const {
@@ -2601,6 +2686,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   codexImageGenerationBridgeMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
   webSearchEmulationMode.value = 'default'
+  kiroPassthroughEnabled.value = false
+  kiroStripToolsOnFailEnabled.value = false
+  kiroWebPortalEnabled.value = false
+  if (newAccount.platform === 'kiro') {
+    kiroPassthroughEnabled.value = extra?.kiro_passthrough === true
+    kiroStripToolsOnFailEnabled.value = extra?.kiro_strip_tools_on_fail === true
+    kiroWebPortalEnabled.value = extra?.kiro_web_portal === true
+  }
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
@@ -3585,6 +3678,29 @@ const handleSubmit = async () => {
       }
 
       updatePayload.credentials = newCredentials
+    }
+
+    // For Kiro accounts, handle compatibility switches in extra.
+    if (props.account.platform === 'kiro') {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (kiroPassthroughEnabled.value) {
+        newExtra.kiro_passthrough = true
+      } else {
+        delete newExtra.kiro_passthrough
+      }
+      if (kiroStripToolsOnFailEnabled.value) {
+        newExtra.kiro_strip_tools_on_fail = true
+      } else {
+        delete newExtra.kiro_strip_tools_on_fail
+      }
+      if (kiroWebPortalEnabled.value) {
+        newExtra.kiro_web_portal = true
+      } else {
+        delete newExtra.kiro_web_portal
+      }
+      updatePayload.extra = newExtra
     }
 
     // For antigravity accounts, handle mixed_scheduling and allow_overages in extra

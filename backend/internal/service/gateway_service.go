@@ -29,6 +29,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -485,6 +486,10 @@ type ClaudeUsage struct {
 	CacheCreation5mTokens    int // 5分钟缓存创建token（来自嵌套 cache_creation 对象）
 	CacheCreation1hTokens    int // 1小时缓存创建token（来自嵌套 cache_creation 对象）
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
+	// Kiro 渠道专用：仅用于日志与 cost 参考，禁止参与 Anthropic input_tokens/output_tokens 字段计算
+	KiroCreditUsage         float64 `json:"kiro_credit_usage,omitempty"`
+	KiroCreditUnit          string  `json:"kiro_credit_unit,omitempty"`
+	KiroContextUsagePercent float64 `json:"kiro_context_usage_percent,omitempty"`
 }
 
 // ForwardResult 转发结果
@@ -9426,6 +9431,114 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		modelsListCacheStoreTotal.Add(1)
 	}
 	return cloneStringSlice(models)
+}
+
+func (s *GatewayService) GetKiroAvailableModels(ctx context.Context, groupID *int64) []string {
+	if s == nil || s.accountRepo == nil {
+		return nil
+	}
+	var accounts []Account
+	var err error
+	if groupID != nil {
+		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, PlatformKiro)
+	} else {
+		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, PlatformKiro)
+	}
+	if err != nil || len(accounts) == 0 {
+		return nil
+	}
+	for i := range accounts {
+		account := &accounts[i]
+		client := kiro.NewClient(kiroCredentialsFromAccount(account), nil)
+		refresh, err := client.EnsureAccessToken(ctx)
+		if err != nil {
+			continue
+		}
+		if refresh.Refreshed {
+			persistKiroCredentials(ctx, s.accountRepo, account, refresh.Credentials)
+			client = kiro.NewClient(refresh.Credentials, nil)
+		}
+		if s.httpUpstream == nil {
+			modelsResp, _, err := client.ListAvailableModels(ctx)
+			if err != nil || modelsResp == nil || len(modelsResp.Models) == 0 {
+				continue
+			}
+			if models := kiroAvailableModelIDs(modelsResp); len(models) > 0 {
+				return models
+			}
+			continue
+		}
+		req, err := client.BuildListAvailableModelsRequest(ctx)
+		if err != nil {
+			continue
+		}
+		proxyURL := ""
+		if account.ProxyID != nil && account.Proxy != nil {
+			proxyURL = account.Proxy.URL()
+		}
+		var tlsProfile *tlsfingerprint.Profile
+		if s.tlsFPProfileService != nil {
+			tlsProfile = s.tlsFPProfileService.ResolveTLSProfile(account)
+		}
+		resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		_ = resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			continue
+		}
+		modelsResp, err := kiro.ParseAvailableModelsResponse(body)
+		if err != nil || modelsResp == nil || len(modelsResp.Models) == 0 {
+			continue
+		}
+		models := kiroAvailableModelIDs(modelsResp)
+		if len(models) > 0 {
+			return models
+		}
+	}
+	return nil
+}
+
+func kiroAvailableModelIDs(modelsResp *kiro.AvailableModelsResponse) []string {
+	if modelsResp == nil {
+		return nil
+	}
+	models := make([]string, 0, len(modelsResp.Models)+1)
+	seen := make(map[string]struct{}, len(modelsResp.Models)+1)
+	addModel := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		external := kiroExternalModelID(id)
+		if _, ok := seen[external]; ok {
+			return
+		}
+		seen[external] = struct{}{}
+		models = append(models, external)
+	}
+	if modelsResp.DefaultModel != nil {
+		addModel(modelsResp.DefaultModel.ModelID)
+	}
+	for _, model := range modelsResp.Models {
+		addModel(model.ModelID)
+	}
+	if len(models) == 0 {
+		return nil
+	}
+	sort.Strings(models)
+	return models
+}
+
+func kiroExternalModelID(upstream string) string {
+	for external, mapped := range kiro.ModelMapping {
+		if mapped == upstream && !strings.HasSuffix(external, "-thinking") {
+			return external
+		}
+	}
+	return strings.ReplaceAll(upstream, ".", "-")
 }
 
 func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform string) {

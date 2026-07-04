@@ -20,6 +20,13 @@ type Credentials struct {
 	Provider              string `json:"provider,omitempty"`
 	StartURL              string `json:"start_url,omitempty"`
 	SSORegion             string `json:"sso_region,omitempty"`
+	CSRFToken             string `json:"csrf_token,omitempty"`
+	UserID                string `json:"user_id,omitempty"`
+	VisitorID             string `json:"visitor_id,omitempty"`
+	WebSessionID          string `json:"web_session_id,omitempty"`
+	WebSpaceID            string `json:"web_space_id,omitempty"`
+	WebAgentMode          string `json:"web_agent_mode,omitempty"`
+	WebCookie             string `json:"web_cookie,omitempty"`
 }
 
 type Message struct {
@@ -44,14 +51,59 @@ type Request struct {
 }
 
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreation5mTokens    int `json:"-"`
+	CacheCreation1hTokens    int `json:"-"`
+}
+
+type AvailableModelsResponse struct {
+	DefaultModel *AvailableModelDefault `json:"defaultModel,omitempty"`
+	Models       []AvailableModel       `json:"models,omitempty"`
+}
+
+type AvailableModelDefault struct {
+	ModelID string `json:"modelId,omitempty"`
+}
+
+type AvailableModel struct {
+	ModelID                            string              `json:"modelId,omitempty"`
+	ModelName                          string              `json:"modelName,omitempty"`
+	Description                        string              `json:"description,omitempty"`
+	RateMultiplier                     float64             `json:"rateMultiplier,omitempty"`
+	RateUnit                           string              `json:"rateUnit,omitempty"`
+	SupportedInputTypes                []string            `json:"supportedInputTypes,omitempty"`
+	TokenLimits                        *ModelTokenLimits   `json:"tokenLimits,omitempty"`
+	PromptCaching                      *ModelPromptCaching `json:"promptCaching,omitempty"`
+	AdditionalModelRequestFieldsSchema json.RawMessage     `json:"additionalModelRequestFieldsSchema,omitempty"`
+}
+
+type ModelTokenLimits struct {
+	MaxInputTokens  int `json:"maxInputTokens,omitempty"`
+	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+}
+
+type ModelPromptCaching struct {
+	SupportsPromptCaching             bool `json:"supportsPromptCaching"`
+	MaximumCacheCheckpointsPerRequest int  `json:"maximumCacheCheckpointsPerRequest,omitempty"`
+	MinimumTokensPerCacheCheckpoint   int  `json:"minimumTokensPerCacheCheckpoint,omitempty"`
 }
 
 type Response struct {
-	Content    string `json:"content,omitempty"`
-	StopReason string `json:"stop_reason,omitempty"`
-	Usage      Usage  `json:"usage,omitempty"`
+	Content    string  `json:"content,omitempty"`
+	Blocks     []Block `json:"blocks,omitempty"`
+	StopReason string  `json:"stop_reason,omitempty"`
+	Usage      Usage   `json:"usage,omitempty"`
+}
+
+type Block struct {
+	Type  string `json:"type"`
+	Text  string `json:"text,omitempty"`
+	ID    string `json:"id,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Input string `json:"input,omitempty"`
 }
 
 type StreamEvent struct {
@@ -61,6 +113,16 @@ type StreamEvent struct {
 	Input      string
 	Stop       bool
 	Percentage float64
+	Usage      *Usage
+	Metering   *Metering
+}
+
+// Metering 表示 Kiro meteringEvent 帧中的 credit 用量。
+// 该字段只用于 Kiro 成本参考；禁止换算为 Anthropic input_tokens/output_tokens。
+type Metering struct {
+	Unit       string  `json:"unit"`
+	UnitPlural string  `json:"unitPlural"`
+	Usage      float64 `json:"usage"`
 }
 
 type ToolUse struct {

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ugorji/go/codec"
 )
 
 type Client struct {
@@ -172,11 +173,12 @@ func (c *Client) BuildRequestBody(req Request) (map[string]any, string) {
 	history := make([]any, 0, len(messages))
 	start := 0
 
-	systemPrompt := contentText(req.System)
+	systemPrompt := contentTextOnly(req.System)
 	if systemPrompt != "" {
 		if len(messages) > 0 && messages[0].Role == "user" {
-			first := contentText(messages[0].Content)
-			history = append(history, userInputMessage(systemPrompt+"\n\n"+first, modelID))
+			firstParts := parseContentParts(messages[0].Content)
+			firstParts.text = joinNonEmpty("\n\n", systemPrompt, firstParts.text)
+			history = append(history, userInputMessageFromParts(firstParts, modelID))
 			start = 1
 		} else {
 			history = append(history, userInputMessage(systemPrompt, modelID))
@@ -185,52 +187,121 @@ func (c *Client) BuildRequestBody(req Request) (map[string]any, string) {
 
 	for i := start; i < len(messages)-1; i++ {
 		msg := messages[i]
+		parts := parseContentParts(msg.Content)
 		if msg.Role == "assistant" {
-			history = append(history, map[string]any{"assistantResponseMessage": map[string]any{"content": contentText(msg.Content)}})
+			history = append(history, assistantResponseMessageFromParts(parts))
 			continue
 		}
-		history = append(history, userInputMessage(contentText(msg.Content), modelID))
+		history = append(history, userInputMessageFromParts(parts, modelID))
 	}
 
-	currentContent := "Continue"
+	currentParts := parsedContentParts{text: "Continue"}
 	if len(messages) > 0 {
 		current := messages[len(messages)-1]
-		currentContent = contentText(current.Content)
+		currentParts = parseContentParts(current.Content)
 		if current.Role == "assistant" {
-			history = append(history, map[string]any{"assistantResponseMessage": map[string]any{"content": currentContent}})
-			currentContent = "Continue"
+			history = append(history, assistantResponseMessageFromParts(currentParts))
+			currentParts = parsedContentParts{text: "Continue"}
 		} else if len(history) > 0 {
 			if _, ok := history[len(history)-1].(map[string]any)["assistantResponseMessage"]; !ok {
 				history = append(history, map[string]any{"assistantResponseMessage": map[string]any{"content": "Continue"}})
 			}
 		}
 	}
-	if strings.TrimSpace(currentContent) == "" {
-		currentContent = "Continue"
+	if strings.TrimSpace(currentParts.text) == "" && len(currentParts.toolResults) == 0 {
+		currentParts.text = "Continue"
+	}
+
+	currentUserInput := map[string]any{
+		"content": currentParts.text,
+		"modelId": modelID,
+		"origin":  OriginKiroCLI,
+	}
+	context := userInputMessageContext(req.Tools, currentParts.toolResults)
+	if len(context) > 0 {
+		currentUserInput["userInputMessageContext"] = context
 	}
 
 	state := map[string]any{
+		"agentTaskType":   "vibe",
 		"chatTriggerType": ChatTriggerManual,
 		"conversationId":  conversationID,
 		"currentMessage": map[string]any{
-			"userInputMessage": map[string]any{
-				"content": currentContent,
-				"modelId": modelID,
-				"origin":  OriginAIEditor,
-			},
+			"userInputMessage": currentUserInput,
 		},
 	}
 	if len(history) > 0 {
 		state["history"] = history
 	}
-	if len(req.Tools) > 0 {
-		state["currentMessage"].(map[string]any)["userInputMessage"].(map[string]any)["userInputMessageContext"] = toolsContext(req.Tools)
-	}
 	body := map[string]any{"conversationState": state}
+	if extra := additionalModelRequestFields(modelID); len(extra) > 0 {
+		body["additionalModelRequestFields"] = extra
+	}
 	if c.creds.AuthMethod == AuthMethodSocial && c.creds.ProfileARN != "" {
 		body["profileArn"] = c.creds.ProfileARN
 	}
 	return body, modelID
+}
+
+func (c *Client) BuildWebPortalStreamRequest(ctx context.Context, req Request) (*http.Request, string, error) {
+	modelID := MapModel(req.Model)
+	content := currentMessageText(req.Messages)
+	if strings.TrimSpace(content) == "" {
+		content = "Continue"
+	}
+	sessionID := firstNonEmpty(c.creds.WebSessionID, c.creds.UUID, uuid.NewString())
+	spaceID := firstNonEmpty(c.creds.WebSpaceID, sessionID)
+	agentMode := firstNonEmpty(c.creds.WebAgentMode, "VIBE")
+	body := map[string]any{
+		"spaceId":   spaceID,
+		"sessionId": sessionID,
+		"contentBlocks": []any{
+			map[string]any{"text": map[string]any{"text": content}},
+		},
+		"modelId":    modelID,
+		"csrfToken":  c.creds.CSRFToken,
+		"agentMode":  agentMode,
+		"profileArn": c.creds.ProfileARN,
+	}
+	var payload bytes.Buffer
+	var handle codec.CborHandle
+	if err := codec.NewEncoder(&payload, &handle).Encode(body); err != nil {
+		return nil, "", err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, WebPortalStreamURL, bytes.NewReader(payload.Bytes()))
+	if err != nil {
+		return nil, "", err
+	}
+	httpReq.Header.Set("Accept", "application/cbor")
+	httpReq.Header.Set("Content-Type", "application/cbor")
+	httpReq.Header.Set("Smithy-Protocol", "rpc-v2-cbor")
+	httpReq.Header.Set("Authorization", "Bearer "+c.creds.AccessToken)
+	httpReq.Header.Set("amz-sdk-invocation-id", uuid.NewString())
+	httpReq.Header.Set("amz-sdk-request", "attempt=1; max=1")
+	httpReq.Header.Set("x-amz-user-agent", "aws-sdk-js/1.0.0 ua/2.1 os/"+runtime.GOOS+" lang/js md/browser#sub2api m/N,M,E")
+	httpReq.Header.Set("Origin", "https://app.kiro.dev")
+	httpReq.Header.Set("Referer", "https://app.kiro.dev/session/"+sessionID)
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36")
+	if c.creds.CSRFToken != "" {
+		httpReq.Header.Set("x-csrf-token", c.creds.CSRFToken)
+	}
+	if c.creds.UserID != "" {
+		httpReq.Header.Set("x-kiro-userid", c.creds.UserID)
+	}
+	if c.creds.VisitorID != "" {
+		httpReq.Header.Set("x-kiro-visitorid", c.creds.VisitorID)
+	}
+	if c.creds.WebCookie != "" {
+		httpReq.Header.Set("Cookie", c.creds.WebCookie)
+	}
+	return httpReq, modelID, nil
+}
+
+func currentMessageText(messages []Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	return contentText(messages[len(messages)-1].Content)
 }
 
 func (c *Client) BuildHTTPRequest(ctx context.Context, req Request) (*http.Request, string, error) {
@@ -239,15 +310,17 @@ func (c *Client) BuildHTTPRequest(ctx context.Context, req Request) (*http.Reque
 	if err != nil {
 		return nil, "", err
 	}
-	url := fmt.Sprintf(CodeWhispererURLTmpl, c.creds.Region)
+
+	url := fmt.Sprintf(RuntimeURLTemplate, c.creds.Region)
 	if strings.HasPrefix(req.Model, "amazonq") {
 		url = fmt.Sprintf(AmazonQURLTmpl, c.creds.Region)
 	}
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, "", err
 	}
-	for k, values := range c.headers() {
+	for k, values := range c.headers(req.Stream) {
 		for _, v := range values {
 			httpReq.Header.Add(k, v)
 		}
@@ -255,6 +328,99 @@ func (c *Client) BuildHTTPRequest(ctx context.Context, req Request) (*http.Reque
 	httpReq.Header.Set("Authorization", "Bearer "+c.creds.AccessToken)
 	httpReq.Header.Set("amz-sdk-invocation-id", uuid.NewString())
 	return httpReq, modelID, nil
+}
+
+func (c *Client) ListAvailableModels(ctx context.Context) (*AvailableModelsResponse, RefreshResult, error) {
+	refresh, err := c.EnsureAccessToken(ctx)
+	if err != nil {
+		return nil, refresh, err
+	}
+	if refresh.Refreshed {
+		c.creds = refresh.Credentials
+	}
+
+	models, err := c.listAvailableModelsOnce(ctx)
+	if err == nil {
+		return models, refresh, nil
+	}
+	if !strings.Contains(err.Error(), "status=401") && !strings.Contains(err.Error(), "status=403") {
+		return nil, refresh, err
+	}
+	if strings.TrimSpace(c.creds.RefreshToken) == "" {
+		return nil, refresh, err
+	}
+
+	retryRefresh, refreshErr := c.ForceRefreshAccessToken(ctx)
+	if refreshErr != nil {
+		return nil, refresh, refreshErr
+	}
+	models, retryErr := c.listAvailableModelsOnce(ctx)
+	if retryErr != nil {
+		return nil, retryRefresh, retryErr
+	}
+	return models, retryRefresh, nil
+}
+
+func (c *Client) BuildListAvailableModelsRequest(ctx context.Context) (*http.Request, error) {
+	return c.buildListAvailableModelsRequest(ctx)
+}
+
+func (c *Client) listAvailableModelsOnce(ctx context.Context) (*AvailableModelsResponse, error) {
+	req, err := c.buildListAvailableModelsRequest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("kiro listAvailableModels failed: status=%d body=%s", resp.StatusCode, truncate(respBody, 512))
+	}
+	return ParseAvailableModelsResponse(respBody)
+}
+
+func (c *Client) buildListAvailableModelsRequest(ctx context.Context) (*http.Request, error) {
+	body := map[string]string{"origin": OriginKiroCLI}
+	if strings.TrimSpace(c.creds.ProfileARN) != "" {
+		body["profileArn"] = c.creds.ProfileARN
+	}
+	payload, _ := json.Marshal(body)
+
+	params := url.Values{}
+	params.Set("origin", OriginKiroCLI)
+	if strings.TrimSpace(c.creds.ProfileARN) != "" {
+		params.Set("profileArn", c.creds.ProfileARN)
+	}
+	endpoint := fmt.Sprintf(ManagementURLTemplate, c.creds.Region) + "?" + params.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	c.setManagementHeaders(req)
+	return req, nil
+}
+
+func ParseAvailableModelsResponse(respBody []byte) (*AvailableModelsResponse, error) {
+	var out AvailableModelsResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) setManagementHeaders(req *http.Request) {
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("x-amz-target", "AmazonCodeWhispererService.ListAvailableModels")
+	req.Header.Set("Authorization", "Bearer "+c.creds.AccessToken)
+	req.Header.Set("amz-sdk-invocation-id", uuid.NewString())
+	req.Header.Set("amz-sdk-request", "attempt=1; max=3")
+	req.Header.Set("x-amzn-codewhisperer-optout", "false")
+	req.Header.Set("x-amz-user-agent", "aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererruntime/0.1.17593 os/"+runtime.GOOS+" lang/rust/1.92.0 m/F,C app/AmazonQ-For-CLI")
+	req.Header.Set("user-agent", "aws-sdk-rust/1.3.15 ua/2.1 api/codewhispererruntime/0.1.17593 os/"+runtime.GOOS+" lang/rust/1.92.0 md/appVersion-2.11.0 app/AmazonQ-For-CLI")
 }
 
 func (c *Client) GetUsageLimits(ctx context.Context) (*UsageLimits, RefreshResult, error) {
@@ -298,7 +464,7 @@ func (c *Client) getUsageLimitsOnce(ctx context.Context) (*UsageLimits, error) {
 	if err != nil {
 		return nil, err
 	}
-	for k, values := range c.headers() {
+	for k, values := range c.headers(false) {
 		for _, v := range values {
 			req.Header.Add(k, v)
 		}
@@ -318,18 +484,26 @@ func (c *Client) getUsageLimitsOnce(ctx context.Context) (*UsageLimits, error) {
 	return FormatUsageLimits(body)
 }
 
-func (c *Client) headers() http.Header {
+func (c *Client) headers(stream bool) http.Header {
 	machineID := c.machineID()
 	osName := runtime.GOOS + "#" + runtime.GOARCH
 	nodeVersion := "20.0.0"
 	h := http.Header{}
-	h.Set("Content-Type", "application/json")
-	h.Set("Accept", "application/json")
+	h.Set("Content-Type", "application/x-amz-json-1.0")
+	h.Set("x-amz-target", "AmazonCodeWhispererStreamingService.GenerateAssistantResponse")
+	h.Set("x-amzn-codewhisperer-optout", "false")
 	h.Set("amz-sdk-request", "attempt=1; max=1")
 	h.Set("x-amzn-kiro-agent-mode", "vibe")
 	h.Set("x-amz-user-agent", fmt.Sprintf("aws-sdk-js/1.0.0 KiroIDE-%s-%s", KiroIDEVersion, machineID))
 	h.Set("user-agent", fmt.Sprintf("aws-sdk-js/1.0.0 ua/2.1 os/%s lang/js md/nodejs#%s api/codewhispererruntime#1.0.0 m/E KiroIDE-%s-%s", osName, nodeVersion, KiroIDEVersion, machineID))
-	h.Set("Connection", "close")
+
+	if stream {
+		h.Set("Accept", "application/vnd.amazon.eventstream")
+		h.Set("Connection", "keep-alive")
+	} else {
+		h.Set("Accept", "application/json")
+		h.Set("Connection", "close")
+	}
 	return h
 }
 
@@ -354,24 +528,229 @@ func userInputMessage(content, modelID string) map[string]any {
 	return map[string]any{"userInputMessage": map[string]any{
 		"content": content,
 		"modelId": modelID,
-		"origin":  OriginAIEditor,
+		"origin":  OriginKiroCLI,
 	}}
+}
+
+type parsedContentParts struct {
+	text        string
+	toolUses    []any
+	toolResults []any
+}
+
+func assistantResponseMessageFromParts(parts parsedContentParts) map[string]any {
+	msg := map[string]any{"content": parts.text}
+	if len(parts.toolUses) > 0 {
+		msg["toolUses"] = parts.toolUses
+	}
+	return map[string]any{"assistantResponseMessage": msg}
+}
+
+func userInputMessageFromParts(parts parsedContentParts, modelID string) map[string]any {
+	msg := map[string]any{
+		"content": parts.text,
+		"modelId": modelID,
+		"origin":  OriginKiroCLI,
+	}
+	context := userInputMessageContext(nil, parts.toolResults)
+	if len(context) > 0 {
+		msg["userInputMessageContext"] = context
+	}
+	return map[string]any{"userInputMessage": msg}
+}
+
+func userInputMessageContext(tools []Tool, toolResults []any) map[string]any {
+	context := map[string]any{
+		"envState": kiroEnvState(),
+	}
+	if len(tools) > 0 {
+		for k, v := range toolsContext(tools) {
+			context[k] = v
+		}
+	}
+	if len(toolResults) > 0 {
+		context["toolResults"] = toolResults
+	}
+	return context
+}
+
+func additionalModelRequestFields(modelID string) map[string]any {
+	if !strings.HasPrefix(modelID, "claude-opus-") && !strings.HasPrefix(modelID, "claude-sonnet-") {
+		return nil
+	}
+	return map[string]any{
+		"output_config": map[string]any{
+			"effort": "xhigh",
+		},
+	}
+}
+
+func kiroEnvState() map[string]any {
+	cwd, err := os.Getwd()
+	if err != nil || strings.TrimSpace(cwd) == "" {
+		cwd = "."
+	}
+	return map[string]any{
+		"currentWorkingDirectory": cwd,
+		"operatingSystem":         kiroOperatingSystem(runtime.GOOS),
+	}
+}
+
+func kiroOperatingSystem(goos string) string {
+	switch goos {
+	case "darwin":
+		return "macos"
+	case "windows":
+		return "windows"
+	case "linux":
+		return "linux"
+	default:
+		return goos
+	}
+}
+
+func contentTextOnly(v any) string {
+	return parseContentParts(v).text
+}
+
+func parseContentParts(v any) parsedContentParts {
+	switch t := v.(type) {
+	case nil:
+		return parsedContentParts{}
+	case string:
+		return parsedContentParts{text: t}
+	case json.RawMessage:
+		return rawContentParts(t)
+	case []byte:
+		return rawContentParts(t)
+	default:
+		b, _ := json.Marshal(t)
+		return rawContentParts(b)
+	}
+}
+
+func rawContentParts(raw []byte) parsedContentParts {
+	if len(raw) == 0 {
+		return parsedContentParts{}
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return parsedContentParts{text: s}
+	}
+	var parts []map[string]any
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return parsedContentParts{text: string(raw)}
+	}
+
+	out := parsedContentParts{}
+	var texts []string
+	for _, part := range parts {
+		typ, _ := part["type"].(string)
+		switch typ {
+		case "text":
+			if text, _ := part["text"].(string); text != "" {
+				texts = append(texts, text)
+			}
+		case "tool_use":
+			name, _ := part["name"].(string)
+			id, _ := part["id"].(string)
+			if name == "" || id == "" {
+				continue
+			}
+			input, ok := part["input"]
+			if !ok || input == nil {
+				input = map[string]any{}
+			}
+			out.toolUses = append(out.toolUses, map[string]any{
+				"toolUseId": id,
+				"name":      name,
+				"input":     input,
+			})
+		case "tool_result":
+			id, _ := part["tool_use_id"].(string)
+			if id == "" {
+				continue
+			}
+			status := "success"
+			if isError, _ := part["is_error"].(bool); isError {
+				status = "error"
+			}
+			out.toolResults = append(out.toolResults, map[string]any{
+				"toolUseId": id,
+				"content":   toolResultContent(part["content"]),
+				"status":    status,
+			})
+		}
+	}
+	out.text = strings.Join(texts, "\n")
+	return out
+}
+
+func toolResultContent(content any) []any {
+	if content == nil {
+		return []any{map[string]any{"text": ""}}
+	}
+	if s, ok := content.(string); ok {
+		return []any{map[string]any{"text": s}}
+	}
+	items, ok := content.([]any)
+	if !ok {
+		return []any{map[string]any{"json": content}}
+	}
+	out := make([]any, 0, len(items))
+	for _, item := range items {
+		if block, ok := item.(map[string]any); ok {
+			if typ, _ := block["type"].(string); typ == "text" {
+				if text, _ := block["text"].(string); text != "" {
+					out = append(out, map[string]any{"text": text})
+					continue
+				}
+			}
+		}
+		out = append(out, map[string]any{"json": item})
+	}
+	if len(out) == 0 {
+		return []any{map[string]any{"text": ""}}
+	}
+	return out
+}
+
+func joinNonEmpty(sep string, vals ...string) string {
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			out = append(out, v)
+		}
+	}
+	return strings.Join(out, sep)
 }
 
 func toolsContext(tools []Tool) map[string]any {
 	out := make([]any, 0, len(tools))
 	for _, tool := range tools {
-		schema := json.RawMessage(`{}`)
-		if len(tool.InputSchema) > 0 {
-			schema = tool.InputSchema
-		}
 		out = append(out, map[string]any{"toolSpecification": map[string]any{
 			"name":        tool.Name,
 			"description": tool.Description,
-			"inputSchema": map[string]any{"json": json.RawMessage(schema)},
+			"inputSchema": normalizeToolInputSchema(tool.InputSchema),
 		}})
 	}
 	return map[string]any{"tools": out}
+}
+
+func normalizeToolInputSchema(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return map[string]any{"json": map[string]any{}}
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil || decoded == nil {
+		return map[string]any{"json": map[string]any{}}
+	}
+	if wrapped, ok := decoded.(map[string]any); ok {
+		if _, hasJSON := wrapped["json"]; hasJSON {
+			return wrapped
+		}
+	}
+	return map[string]any{"json": decoded}
 }
 
 func mergeAdjacentMessages(in []Message) []Message {
@@ -381,68 +760,27 @@ func mergeAdjacentMessages(in []Message) []Message {
 			out = append(out, msg)
 			continue
 		}
-		prev := contentText(out[len(out)-1].Content)
-		next := contentText(msg.Content)
-		if prev == "" {
-			out[len(out)-1].Content = next
-		} else if next != "" {
-			out[len(out)-1].Content = prev + "\n" + next
+		prevParts := parseContentParts(out[len(out)-1].Content)
+		nextParts := parseContentParts(msg.Content)
+		if len(prevParts.toolUses) > 0 || len(prevParts.toolResults) > 0 || len(nextParts.toolUses) > 0 || len(nextParts.toolResults) > 0 {
+			out = append(out, msg)
+			continue
+		}
+		if prevParts.text == "" {
+			out[len(out)-1].Content = nextParts.text
+		} else if nextParts.text != "" {
+			out[len(out)-1].Content = prevParts.text + "\n" + nextParts.text
 		}
 	}
 	return out
 }
 
 func contentText(v any) string {
-	switch t := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return t
-	case json.RawMessage:
-		return rawContentText(t)
-	case []byte:
-		return rawContentText(t)
-	default:
-		b, _ := json.Marshal(t)
-		return rawContentText(b)
-	}
+	return contentTextOnly(v)
 }
 
 func rawContentText(raw []byte) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
-	}
-	var parts []map[string]any
-	if err := json.Unmarshal(raw, &parts); err == nil {
-		var texts []string
-		for _, part := range parts {
-			switch part["type"] {
-			case "text":
-				if text, _ := part["text"].(string); text != "" {
-					texts = append(texts, text)
-				}
-			case "tool_use":
-				name, _ := part["name"].(string)
-				id, _ := part["id"].(string)
-				input, _ := json.Marshal(part["input"])
-				if id != "" {
-					texts = append(texts, fmt.Sprintf("[Called %s (%s) with args: %s]", name, id, input))
-				} else {
-					texts = append(texts, fmt.Sprintf("[Called %s with args: %s]", name, input))
-				}
-			case "tool_result":
-				id, _ := part["tool_use_id"].(string)
-				content, _ := json.Marshal(part["content"])
-				texts = append(texts, fmt.Sprintf("[Tool result (%s): %s]", id, contentText(json.RawMessage(content))))
-			}
-		}
-		return strings.Join(texts, "\n")
-	}
-	return string(raw)
+	return rawContentParts(raw).text
 }
 
 func firstNonEmpty(vals ...string) string {

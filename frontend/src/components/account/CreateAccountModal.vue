@@ -1031,6 +1031,84 @@
         </div>
       </div>
 
+      <div v-if="form.platform === 'kiro'" class="space-y-4">
+        <div class="rounded-lg border border-teal-200 bg-teal-50 p-3 dark:border-teal-800/50 dark:bg-teal-900/20">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.kiro.passthrough') }}</label>
+              <p class="mt-1 text-xs text-teal-700 dark:text-teal-300">
+                {{ t('admin.accounts.kiro.passthroughDesc') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="kiroPassthroughEnabled = !kiroPassthroughEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2',
+                kiroPassthroughEnabled ? 'bg-teal-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  kiroPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
+        <div class="rounded-lg border border-teal-200 bg-teal-50 p-3 dark:border-teal-800/50 dark:bg-teal-900/20">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.kiro.stripToolsOnFail') }}</label>
+              <p class="mt-1 text-xs text-teal-700 dark:text-teal-300">
+                {{ t('admin.accounts.kiro.stripToolsOnFailDesc') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="kiroStripToolsOnFailEnabled = !kiroStripToolsOnFailEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2',
+                kiroStripToolsOnFailEnabled ? 'bg-teal-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  kiroStripToolsOnFailEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
+        <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/50 dark:bg-amber-900/20">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.kiro.webPortal') }}</label>
+              <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                {{ t('admin.accounts.kiro.webPortalDesc') }}
+              </p>
+            </div>
+            <button
+              type="button"
+              @click="kiroWebPortalEnabled = !kiroWebPortalEnabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2',
+                kiroWebPortalEnabled ? 'bg-amber-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  kiroWebPortalEnabled ? 'translate-x-5' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="form.platform === 'kiro' && kiroAddMode === 'manual'" class="space-y-4">
         <div>
           <label class="input-label">Access Token</label>
@@ -3664,6 +3742,9 @@ const kiroStartUrl = ref('')
 const kiroSocialProvider = ref<KiroSocialProvider>('google')
 const kiroRedirectUri = ref('http://127.0.0.1:49153/oauth/callback')
 const kiroCallbackOrCode = ref('')
+const kiroPassthroughEnabled = ref(false)
+const kiroStripToolsOnFailEnabled = ref(false)
+const kiroWebPortalEnabled = ref(false)
 
 // Bedrock credentials
 const bedrockAuthMode = ref<'sigv4' | 'apikey'>('sigv4')
@@ -4258,12 +4339,16 @@ const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
 const buildKiroModelMapping = () => buildModelMappingObject('mapping', [], modelMappings.value)
 
 const createKiroAccountFromCredentials = async (credentials: Record<string, unknown>) => {
+  const extra: Record<string, unknown> = {}
+  if (kiroPassthroughEnabled.value) extra.kiro_passthrough = true
+  if (kiroStripToolsOnFailEnabled.value) extra.kiro_strip_tools_on_fail = true
+  if (kiroWebPortalEnabled.value) extra.kiro_web_portal = true
   const modelMapping = buildKiroModelMapping()
   if (modelMapping) {
     credentials.model_mapping = modelMapping
   }
   applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
-  await createAccountAndFinish('kiro', 'oauth', credentials)
+  await createAccountAndFinish('kiro', 'oauth', credentials, Object.keys(extra).length > 0 ? extra : undefined)
 }
 
 const handleKiroStartDeviceAuth = async () => {
