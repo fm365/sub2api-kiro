@@ -913,6 +913,11 @@ func applyKiroUsageEstimate(usage *ClaudeUsage, estimate ClaudeUsage) {
 	if usage == nil {
 		return
 	}
+	// 当 upstream 返回的 input_tokens 明显低于估算值时，使用估算值作为下限。
+	// 这防止 Kiro upstream 偶尔返回异常小的 input_tokens（如 25K 文本只返回 31）。
+	if estimate.InputTokens > 0 && usage.InputTokens > 0 && usage.InputTokens < estimate.InputTokens/2 {
+		usage.InputTokens = estimate.InputTokens
+	}
 	if usage.InputTokens == 0 {
 		usage.InputTokens = estimate.InputTokens
 	}
