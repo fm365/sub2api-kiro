@@ -271,7 +271,7 @@ func (s *GatewayService) handleKiroClaudeStream(ctx context.Context, c *gin.Cont
 		blockIndex++
 		currentBlockType = "tool"
 		currentToolUseID = tool.ToolUseID
-		currentToolInput = kiro.NormalizeToolInputChunk("", tool.Input)
+		currentToolInput = ""
 		toolBlockOpen = true
 		toolUseSeen = true
 		return write("content_block_start", gin.H{

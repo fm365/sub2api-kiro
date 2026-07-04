@@ -255,6 +255,22 @@ func TestParseNonStreamingResponse_WebPortalCBORRawInputChunks(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolInputChunk_PreservesBoundarySpacesInsideJSONStrings(t *testing.T) {
+	chunks := []string{
+		`{"command":"mkdir`,
+		` -p \"$BIN_DIR\" && command`,
+		` -v cloudflared"}`,
+	}
+	var input string
+	for _, chunk := range chunks {
+		input = NormalizeToolInputChunk(input, chunk)
+	}
+	want := `{"command":"mkdir -p \"$BIN_DIR\" && command -v cloudflared"}`
+	if input != want {
+		t.Fatalf("tool input = %q, want %q", input, want)
+	}
+}
+
 func TestParseNonStreamingResponse_MeteringAndContextUsage(t *testing.T) {
 	body := append(kiroTestEventStreamFrame("meteringEvent", []byte(`{"unit":"credit","unitPlural":"credits","usage":0.26033884537313434}`)),
 		kiroTestEventStreamFrame("contextUsageEvent", []byte(`{"contextUsagePercentage":2.1684000492095947}`))...)

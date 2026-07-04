@@ -137,8 +137,6 @@ func blocksFromStreamEvents(events []StreamEvent) []Block {
 }
 
 func NormalizeToolInputChunk(existing, next string) string {
-	existing = strings.TrimSpace(existing)
-	next = strings.TrimSpace(next)
 	if existing == "" {
 		return next
 	}

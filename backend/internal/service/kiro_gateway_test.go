@@ -274,8 +274,9 @@ func TestHandleKiroClaudeStreamEmitsClaudeCodeToolUseEvents(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	streamBody := strings.Join([]string{
-		`{"name":"Bash","toolUseId":"toolu_1","input":{"command":"pwd"}}`,
-		`{"input":"{\"cwd\":\"/tmp/repo\"}"}`,
+		`{"name":"Bash","toolUseId":"toolu_1","input":"{\"command\":\"mkdir"}`,
+		`{"input":" -p \\\"$BIN_DIR\\\" && command"}`,
+		`{"input":" -v cloudflared\"}"}`,
 		`{"stop":true}`,
 		`{"content":"done"}`,
 	}, "\n")
@@ -300,6 +301,29 @@ func TestHandleKiroClaudeStreamEmitsClaudeCodeToolUseEvents(t *testing.T) {
 	}
 
 	body := w.Body.String()
+	var partialJSON string
+	for _, block := range strings.Split(body, "\n\n") {
+		var data string
+		for _, line := range strings.Split(block, "\n") {
+			if strings.HasPrefix(line, "data: ") {
+				data = strings.TrimPrefix(line, "data: ")
+			}
+		}
+		if data == "" {
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(data), &obj); err != nil {
+			continue
+		}
+		delta, _ := obj["delta"].(map[string]any)
+		if deltaType, _ := delta["type"].(string); deltaType == "input_json_delta" {
+			partialJSON, _ = delta["partial_json"].(string)
+		}
+	}
+	if partialJSON != `{"command":"mkdir -p \"$BIN_DIR\" && command -v cloudflared"}` {
+		t.Fatalf("partial_json = %q, want boundary spaces preserved. body=%s", partialJSON, body)
+	}
 	for _, want := range []string{
 		"event: message_start",
 		"event: content_block_start",
@@ -307,7 +331,6 @@ func TestHandleKiroClaudeStreamEmitsClaudeCodeToolUseEvents(t *testing.T) {
 		`"id":"toolu_1"`,
 		`"name":"Bash"`,
 		`"type":"input_json_delta"`,
-		`"partial_json":"{\"command\":\"pwd\",\"cwd\":\"/tmp/repo\"}"`,
 		`"type":"text_delta"`,
 		`"text":"done"`,
 		`"stop_reason":"tool_use"`,
