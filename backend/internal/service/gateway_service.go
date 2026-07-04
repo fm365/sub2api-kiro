@@ -487,9 +487,9 @@ type ClaudeUsage struct {
 	CacheCreation1hTokens    int // 1小时缓存创建token（来自嵌套 cache_creation 对象）
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
 	// Kiro 渠道专用：仅用于日志与 cost 参考，禁止参与 Anthropic input_tokens/output_tokens 字段计算
-	KiroCreditUsage          float64 `json:"kiro_credit_usage,omitempty"`
-	KiroCreditUnit           string  `json:"kiro_credit_unit,omitempty"`
-	KiroContextUsagePercent  float64 `json:"kiro_context_usage_percent,omitempty"`
+	KiroCreditUsage         float64 `json:"kiro_credit_usage,omitempty"`
+	KiroCreditUnit          string  `json:"kiro_credit_unit,omitempty"`
+	KiroContextUsagePercent float64 `json:"kiro_context_usage_percent,omitempty"`
 }
 
 // ForwardResult 转发结果
@@ -9502,22 +9502,31 @@ func (s *GatewayService) GetKiroAvailableModels(ctx context.Context, groupID *in
 }
 
 func kiroAvailableModelIDs(modelsResp *kiro.AvailableModelsResponse) []string {
-	if modelsResp == nil || len(modelsResp.Models) == 0 {
+	if modelsResp == nil {
 		return nil
 	}
-	models := make([]string, 0, len(modelsResp.Models))
-	seen := make(map[string]struct{}, len(modelsResp.Models))
-	for _, model := range modelsResp.Models {
-		id := strings.TrimSpace(model.ModelID)
+	models := make([]string, 0, len(modelsResp.Models)+1)
+	seen := make(map[string]struct{}, len(modelsResp.Models)+1)
+	addModel := func(id string) {
+		id = strings.TrimSpace(id)
 		if id == "" {
-			continue
+			return
 		}
 		external := kiroExternalModelID(id)
 		if _, ok := seen[external]; ok {
-			continue
+			return
 		}
 		seen[external] = struct{}{}
 		models = append(models, external)
+	}
+	if modelsResp.DefaultModel != nil {
+		addModel(modelsResp.DefaultModel.ModelID)
+	}
+	for _, model := range modelsResp.Models {
+		addModel(model.ModelID)
+	}
+	if len(models) == 0 {
+		return nil
 	}
 	sort.Strings(models)
 	return models

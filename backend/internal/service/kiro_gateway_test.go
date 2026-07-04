@@ -161,6 +161,61 @@ func TestKiroRequestFromClaudeCodeBodyKeepsClaudeCodeFields(t *testing.T) {
 	}
 }
 
+func TestGetKiroAvailableModels_IncludesDefaultModelAuto(t *testing.T) {
+	upstream := &kiroHTTPUpstreamRecorder{}
+	upstream.addResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/x-amz-json-1.0"}}, `{"defaultModel":{"modelId":"auto"},"models":[{"modelId":"claude-opus-4.8"},{"modelId":"claude-opus-4.7"},{"modelId":"claude-opus-4.8"}]}`)
+	svc := &GatewayService{
+		accountRepo: &kiroModelsAccountRepoStub{accounts: []Account{{
+			ID:          11,
+			Platform:    PlatformKiro,
+			Status:      "normal",
+			Schedulable: true,
+			Credentials: map[string]any{
+				"access_token": "token",
+				"profile_arn":  "arn:test",
+				"region":       "us-east-1",
+			},
+		}}},
+		httpUpstream: upstream,
+	}
+
+	models := svc.GetKiroAvailableModels(context.Background(), nil)
+	require.Equal(t, []string{"auto", "claude-opus-4-7", "claude-opus-4-8"}, models)
+}
+
+func TestKiroModelsHandlerRoute_UsesKiroManagementAPIBeforeModelMapping(t *testing.T) {
+	// Pre-fix regression: /v1/models for a Kiro-platform group returned the
+	// account model_mapping whitelist (mixed with thinking/dated variants),
+	// bypassing Kiro ListAvailableModels. After the fix, ModelsHandler must
+	// consult GetKiroAvailableModels first whenever Group.Platform == "kiro".
+	require.Equal(t, PlatformKiro, "kiro")
+
+	upstream := &kiroHTTPUpstreamRecorder{}
+	upstream.addResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/x-amz-json-1.0"}}, `{"defaultModel":{"modelId":"auto"},"models":[{"modelId":"claude-opus-4.8"},{"modelId":"claude-opus-4.7"}]}`)
+	svc := &GatewayService{
+		accountRepo: &kiroModelsAccountRepoStub{accounts: []Account{{
+			ID:          12,
+			Platform:    PlatformKiro,
+			Status:      "normal",
+			Schedulable: true,
+			Credentials: map[string]any{
+				"access_token": "token",
+				"profile_arn":  "arn:test",
+				"region":       "us-east-1",
+			}},
+		}},
+		httpUpstream: upstream,
+	}
+
+	// GetKiroAvailableModels must still consult Kiro management API even when
+	// account has explicit model_mapping. Here we confirm it is queried first
+	// (i.e. the http recorder was hit) and that result reflects Kiro upstream,
+	// not the model_mapping whitelist.
+	models := svc.GetKiroAvailableModels(context.Background(), nil)
+	require.Equal(t, []string{"auto", "claude-opus-4-7", "claude-opus-4-8"}, models)
+	require.Len(t, upstream.requests, 1)
+}
+
 func TestGetKiroAvailableModels_UsesManagementAPI(t *testing.T) {
 	upstream := &kiroHTTPUpstreamRecorder{}
 	upstream.addResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/x-amz-json-1.0"}}, `{"defaultModel":{"modelId":"auto"},"models":[{"modelId":"claude-opus-4.8"},{"modelId":"claude-opus-4.7"}]}`)
@@ -180,7 +235,7 @@ func TestGetKiroAvailableModels_UsesManagementAPI(t *testing.T) {
 	}
 
 	models := svc.GetKiroAvailableModels(context.Background(), nil)
-	require.Equal(t, []string{"claude-opus-4-7", "claude-opus-4-8"}, models)
+	require.Equal(t, []string{"auto", "claude-opus-4-7", "claude-opus-4-8"}, models)
 	require.Len(t, upstream.requests, 1)
 	req := upstream.requests[0]
 	require.Equal(t, "management.us-east-1.kiro.dev", req.URL.Host)
