@@ -125,7 +125,7 @@ func TestBuildRequestBody_UsesKiroCLIOriginAndAgentTaskType(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "vibe", gjson.GetBytes(payload, "conversationState.agentTaskType").String())
 	require.Equal(t, "KIRO_CLI", gjson.GetBytes(payload, "conversationState.currentMessage.userInputMessage.origin").String())
-	require.Equal(t, "xhigh", gjson.GetBytes(payload, "additionalModelRequestFields.output_config.effort").String())
+	require.Equal(t, "max", gjson.GetBytes(payload, "additionalModelRequestFields.output_config.effort").String())
 	require.NotContains(t, string(payload), "AI_EDITOR")
 }
 

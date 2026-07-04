@@ -580,7 +580,7 @@ func additionalModelRequestFields(modelID string) map[string]any {
 	}
 	return map[string]any{
 		"output_config": map[string]any{
-			"effort": "xhigh",
+			"effort": "max",
 		},
 	}
 }
