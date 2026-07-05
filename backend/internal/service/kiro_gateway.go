@@ -27,9 +27,9 @@ func (s *GatewayService) forwardKiro(ctx context.Context, c *gin.Context, accoun
 	var req kiro.Request
 	var err error
 	if account.IsKiroPassthroughEnabled() {
-		req, err = kiroRequestFromPassthrough(parsed.Body)
+		req, err = kiroRequestFromPassthrough(parsed.Body.Bytes())
 	} else {
-		req, err = kiroRequestFromAnthropicBody(parsed.Body)
+		req, err = kiroRequestFromAnthropicBody(parsed.Body.Bytes())
 	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": "Invalid request body"}})
@@ -678,7 +678,7 @@ func (s *GatewayService) forwardKiroAsChatCompletions(ctx context.Context, c *gi
 	if err != nil {
 		return nil, err
 	}
-	kiroParsed, err := ParseGatewayRequest(anthropicBody, "")
+	kiroParsed, err := ParseGatewayRequest(NewRequestBodyRef(anthropicBody), "")
 	if err != nil {
 		return nil, err
 	}

@@ -5737,7 +5737,7 @@ func (s *GatewayService) invalidNonStreamingJSONFailoverError(
 	if account != nil {
 		accountID = account.ID
 		accountName = account.Name
-		retryableOnSameAccount = account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
+		retryableOnSameAccount = account.IsPoolMode() && isPoolModeRetryableStatus(statusCode)
 	}
 
 	logger.LegacyPrintf(
@@ -5752,7 +5752,7 @@ func (s *GatewayService) invalidNonStreamingJSONFailoverError(
 
 	if s.rateLimitService != nil && account != nil {
 		if len(requestedModel) > 0 {
-			s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, resp.Header, body, requestedModel[0])
+			s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, resp.Header, body)
 		} else {
 			s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, resp.Header, body)
 		}
