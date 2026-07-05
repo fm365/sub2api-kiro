@@ -403,10 +403,32 @@ func StripEmptyTextBlocks(body []byte) []byte {
 // This prevents 400 errors from invalid thinking block signatures
 //
 // 策略：
+// NormalizeChineseLLMThinking 将 thinking.type=enabled 重写为 adaptive，
+// 仅对 MiniMax M 系列生效。MiniMax Anthropic 兼容端点只接受 adaptive，
+// 而 Anthropic-SDK 客户端默认发送 enabled。
+func NormalizeChineseLLMThinking(body []byte, mappedModel string) ([]byte, bool) {
+	modelLower := strings.ToLower(mappedModel)
+	if !strings.HasPrefix(modelLower, "minimax-m") {
+		return body, false
+	}
+	thinkingType := gjson.GetBytes(body, "thinking.type").String()
+	if thinkingType != "enabled" {
+		return body, false
+	}
+	modified, err := sjson.SetBytes(body, "thinking.type", "adaptive")
+	if err != nil {
+		return body, false
+	}
+	return modified, true
+}
+
 //   - 当 thinking.type 不是 "enabled"/"adaptive"：移除所有 thinking 相关块
 //   - 当 thinking.type 是 "enabled"/"adaptive"：仅移除缺失/无效 signature 的 thinking 块（避免 400）
 //     (blocks with missing/empty/dummy signatures that would cause 400 errors)
-func FilterThinkingBlocks(body []byte) []byte {
+func FilterThinkingBlocks(body []byte, mappedModel string) []byte {
+	if !ShouldPreFilterThinkingBlocks(mappedModel) {
+		return body
+	}
 	return filterThinkingBlocksInternal(body, false)
 }
 
@@ -424,7 +446,12 @@ func FilterThinkingBlocks(body []byte) []byte {
 //   - Convert `thinking` blocks to `text` blocks (preserve the thinking content).
 //   - Remove `redacted_thinking` blocks (cannot be converted to text).
 //   - Ensure no message ends up with empty content.
-func FilterThinkingBlocksForRetry(body []byte) []byte {
+func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
+	// 仅 anthropic-strict 走整流；passback-required 与 unknown 都返回原 body。
+	if !ShouldApplyRetryFilters(mappedModel) {
+		return body
+	}
+
 	hasThinkingContent := bytes.Contains(body, patternTypeThinking) ||
 		bytes.Contains(body, patternTypeThinkingSpaced) ||
 		bytes.Contains(body, patternTypeRedactedThinking) ||
