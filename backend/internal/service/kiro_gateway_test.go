@@ -366,7 +366,7 @@ func TestForwardKiroWebPortalBuildsCBORRequest(t *testing.T) {
 			},
 		},
 	}
-	parsed, err := ParseGatewayRequest([]byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`), "")
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`)), "")
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -404,11 +404,11 @@ func TestForwardKiroStripToolsOnFailRetriesWithoutTools(t *testing.T) {
 			},
 		},
 	}
-	parsed, err := ParseGatewayRequest([]byte(`{
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(`{
 		"model":"claude-opus-4-7",
 		"messages":[{"role":"user","content":"hi"}],
 		"tools":[{"name":"Bash","description":"Run shell commands","input_schema":{"type":"object"}}]
-	}`), "")
+	}`)), "")
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -442,7 +442,7 @@ func TestForwardKiroStripToolsOnFailDisabledByDefault(t *testing.T) {
 			"model_mapping": map[string]any{"claude-opus-4-7": "claude-opus-4.7"},
 		},
 	}
-	parsed, err := ParseGatewayRequest([]byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}],"tools":[{"name":"Bash","input_schema":{"type":"object"}}]}`), "")
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}],"tools":[{"name":"Bash","input_schema":{"type":"object"}}]}`)), "")
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -563,11 +563,11 @@ func TestKiroParseStreamUsageAndCacheFields(t *testing.T) {
 }
 
 func TestKiroRequestUsageEstimateSeparatesCacheCreationTokens(t *testing.T) {
-	parsed, err := ParseGatewayRequest([]byte(`{
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(`{
 		"model":"claude-opus-4-6",
 		"system":[{"type":"text","text":"cached system prompt","cache_control":{"type":"ephemeral"}}],
 		"messages":[{"role":"user","content":[{"type":"text","text":"hello world"}]}]
-	}`), PlatformKiro)
+	}`)), PlatformKiro)
 	require.NoError(t, err)
 
 	usage := estimateKiroRequestUsage(parsed)
