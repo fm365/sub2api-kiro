@@ -393,7 +393,8 @@ func TestPrepareBedrockRequestBodyWithTokens_ContextManagementRequiresSupportedB
 		result, err := PrepareBedrockRequestBodyWithTokens([]byte(input), modelID, betaTokens, false)
 		require.NoError(t, err)
 
-		assert.False(t, gjson.GetBytes(result, "context_management").Exists())
+		// Kiro keeps context_management field (upstream strips it)
+		// assert.False(t, gjson.GetBytes(result, "context_management").Exists())
 		assert.Equal(t, originalTokens, betaTokens)
 		assert.Equal(t, originalTokens, bedrockAnthropicBetaNames(result))
 	})
@@ -425,8 +426,8 @@ func TestPrepareBedrockRequestBodyWithTokens_ContextManagementRequiresSupportedB
 		)
 		require.NoError(t, err)
 
-		assert.False(t, gjson.GetBytes(result, "context_management").Exists())
-		assert.Equal(t, []string{"context-1m-2025-08-07"}, bedrockAnthropicBetaNames(result))
+		// Kiro keeps context_management field
+		assert.Equal(t, []string{"context-management-2025-06-27", "context-1m-2025-08-07"}, bedrockAnthropicBetaNames(result))
 	})
 }
 

@@ -132,11 +132,6 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 		builder.SetSessionWindowStatus(account.SessionWindowStatus)
 	}
 
-	builder.SetQuotaDimension(dbaccount.QuotaDimension(account.QuotaDimensionOrDefault()))
-	if account.ParentAccountID != nil {
-		builder.SetParentAccountID(*account.ParentAccountID)
-	}
-
 	created, err := builder.Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
@@ -274,7 +269,6 @@ func (r *accountRepository) GetByCRSAccountID(ctx context.Context, crsAccountID 
 	// 更新而覆盖 type/credentials/proxy。即便影子 Extra 被误写入 crs_account_id 也不会命中
 	// (外审第7轮 P1)。
 	m, err := r.client.Account.Query().
-		Where(dbaccount.ParentAccountIDIsNil()).
 		Where(func(s *entsql.Selector) {
 			s.Where(sqljson.ValueEQ(dbaccount.FieldExtra, crsAccountID, sqljson.Path("crs_account_id")))
 		}).
@@ -407,9 +401,6 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 	if account.Notes == nil {
 		builder.ClearNotes()
 	}
-
-	builder.SetQuotaDimension(dbaccount.QuotaDimension(account.QuotaDimensionOrDefault()))
-	builder.SetNillableParentAccountID(account.ParentAccountID)
 
 	updated, err := builder.Save(ctx)
 	if err != nil {
@@ -1273,7 +1264,7 @@ func (r *accountRepository) SetRateLimited(ctx context.Context, id int64, resetA
 	return nil
 }
 
-func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
+func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time) error {
 	if scope == "" {
 		return nil
 	}
@@ -1281,11 +1272,6 @@ func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, sco
 	payload := map[string]string{
 		"rate_limited_at":     now.Format(time.RFC3339),
 		"rate_limit_reset_at": resetAt.UTC().Format(time.RFC3339),
-	}
-	if len(reason) > 0 {
-		if value := strings.TrimSpace(reason[0]); value != "" {
-			payload["reason"] = value
-		}
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -1798,9 +1784,7 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if acc.ProxyID != nil {
 			proxyIDs = append(proxyIDs, *acc.ProxyID)
 		}
-		if acc.ProxyFallbackOriginID != nil {
-			proxyIDs = append(proxyIDs, *acc.ProxyFallbackOriginID)
-		}
+
 	}
 
 	proxyMap, err := r.loadProxies(ctx, proxyIDs)
@@ -1821,13 +1805,6 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if acc.ProxyID != nil {
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {
 				out.Proxy = proxy
-			}
-		}
-		out.ProxyFallbackOriginID = acc.ProxyFallbackOriginID
-		if acc.ProxyFallbackOriginID != nil {
-			if op, ok := proxyMap[*acc.ProxyFallbackOriginID]; ok && op != nil {
-				n := op.Name
-				out.ProxyFallbackOriginName = &n
 			}
 		}
 		if groups, ok := groupsByAccount[acc.ID]; ok {
@@ -2047,7 +2024,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		Credentials:             copyJSONMap(m.Credentials),
 		Extra:                   copyJSONMap(m.Extra),
 		ProxyID:                 m.ProxyID,
-		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
+
 		Concurrency:             m.Concurrency,
 		Priority:                m.Priority,
 		RateMultiplier:          &rateMultiplier,
@@ -2068,8 +2045,6 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		SessionWindowStart:      m.SessionWindowStart,
 		SessionWindowEnd:        m.SessionWindowEnd,
 		SessionWindowStatus:     derefString(m.SessionWindowStatus),
-		ParentAccountID:         m.ParentAccountID,
-		QuotaDimension:          string(m.QuotaDimension),
 	}
 }
 
@@ -2369,7 +2344,7 @@ func (r *accountRepository) RevertProxyFallback(ctx context.Context, accountID i
 // 软删除行由 SoftDeleteMixin 拦截器自动排除，无需手写 deleted_at IS NULL。
 func (r *accountRepository) ListShadowsByParent(ctx context.Context, parentID int64) ([]*service.Account, error) {
 	rows, err := r.client.Account.Query().
-		Where(dbaccount.ParentAccountIDEQ(parentID), dbaccount.QuotaDimensionEQ(dbaccount.QuotaDimensionSpark)).
+		Where(dbaccount.IDEQ(parentID)).
 		All(ctx)
 	if err != nil {
 		return nil, err

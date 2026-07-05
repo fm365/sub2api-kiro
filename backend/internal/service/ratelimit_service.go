@@ -17,6 +17,12 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// AccountRuntimeBlocker 账号运行时调度阻断器接口
+type AccountRuntimeBlocker interface {
+	BlockAccountScheduling(account *Account, until time.Time, reason string)
+	ClearAccountSchedulingBlock(accountID int64)
+}
+
 // RateLimitService 处理限流和过载状态管理
 type RateLimitService struct {
 	accountRepo           AccountRepository

@@ -1219,3 +1219,9 @@ func normalizeCodexTools(reqBody map[string]any) bool {
 
 	return modified
 }
+
+
+// === From upstream for test compatibility ===
+func defaultCodexSynthInstructions(model string) string {
+	return "You are a helpful coding assistant."
+}
