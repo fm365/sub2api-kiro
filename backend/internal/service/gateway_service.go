@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -74,6 +75,8 @@ IMPORTANT: You must NEVER generate or guess URLs for the user unless you are con
 	defaultModelsListCacheTTL    = 15 * time.Second
 	postUsageBillingTimeout      = 15 * time.Second
 	debugGatewayBodyEnv          = "SUB2API_DEBUG_GATEWAY_BODY"
+	// 上游错误体只需要提取错误 JSON/日志摘要，默认 512KiB 避免错误风暴叠加大请求体。
+	gatewayUpstreamErrorBodyReadLimit int64 = 512 << 10
 )
 
 const (
@@ -827,6 +830,15 @@ func (s *GatewayService) SaveAnthropicSession(_ context.Context, groupID int64, 
 	}
 	s.digestStore.Save(groupID, prefixHash, digestChain, uuid, accountID, oldDigestChain)
 	return nil
+}
+
+// parseRawJSONView 以零拷贝方式将 []byte 解析为 gjson.Result（只读视图）。
+// 避免 gjson.ParseBytes 对大 messages/contents 复制整段 raw bytes。
+func parseRawJSONView(raw []byte) gjson.Result {
+	if len(raw) == 0 {
+		return gjson.Result{}
+	}
+	return gjson.Parse(*(*string)(unsafe.Pointer(&raw)))
 }
 
 func (s *GatewayService) extractCacheableContent(parsed *ParsedRequest) string {
@@ -4654,7 +4666,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 		// 优先检测thinking block签名错误（400）并重试一次
 		if resp.StatusCode == 400 {
-			respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+			respBody, readErr := s.readUpstreamErrorBody(resp)
 			if readErr == nil {
 				_ = resp.Body.Close()
 
@@ -4711,7 +4723,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 								break
 							}
 
-							retryRespBody, retryReadErr := io.ReadAll(io.LimitReader(retryResp.Body, 2<<20))
+							retryRespBody, retryReadErr := s.readUpstreamErrorBody(retryResp)
 							_ = retryResp.Body.Close()
 							if retryReadErr == nil && retryResp.StatusCode == 400 && s.isSignatureErrorPattern(ctx, account, retryRespBody) {
 								appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -4845,7 +4857,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					break
 				}
 
-				respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+				respBody, _ := s.readUpstreamErrorBody(resp)
 				_ = resp.Body.Close()
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 					Platform:           account.Platform,
@@ -4892,7 +4904,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// 处理重试耗尽的情况
 	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+			respBody, _ := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
@@ -4927,7 +4939,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 	// 处理可切换账号的错误
 	if resp.StatusCode >= 400 && s.shouldFailoverUpstreamError(resp.StatusCode) {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
@@ -4959,7 +4971,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if resp.StatusCode >= 400 {
 		// 可选：对部分 400 触发 failover（默认关闭以保持语义）
 		if resp.StatusCode == 400 && s.cfg != nil && s.cfg.Gateway.FailoverOn400 {
-			respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+			respBody, readErr := s.readUpstreamErrorBody(resp)
 			if readErr != nil {
 				// ReadAll failed, fall back to normal error handling without consuming the stream
 				return s.handleErrorResponse(ctx, resp, c, account)
@@ -5196,7 +5208,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 					break
 				}
 
-				respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+				respBody, _ := s.readUpstreamErrorBody(resp)
 				_ = resp.Body.Close()
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 					Platform:           account.Platform,
@@ -5234,7 +5246,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 
 	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+			respBody, _ := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
@@ -5268,7 +5280,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	}
 
 	if resp.StatusCode >= 400 && s.shouldFailoverUpstreamError(resp.StatusCode) {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
@@ -6041,7 +6053,7 @@ func (s *GatewayService) executeBedrockUpstream(
 					break
 				}
 
-				respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+				respBody, _ := s.readUpstreamErrorBody(resp)
 				_ = resp.Body.Close()
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 					Platform:           account.Platform,
@@ -6086,7 +6098,7 @@ func (s *GatewayService) handleBedrockUpstreamErrors(
 	// retry exhausted + failover
 	if s.shouldRetryUpstreamError(account, resp.StatusCode) {
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
-			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+			respBody, _ := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
@@ -6113,7 +6125,7 @@ func (s *GatewayService) handleBedrockUpstreamErrors(
 
 	// non-retryable failover
 	if s.shouldFailoverUpstreamError(resp.StatusCode) {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		respBody, _ := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
@@ -7132,8 +7144,21 @@ func isCountTokensUnsupported404(statusCode int, body []byte) bool {
 	return strings.Contains(msg, "count_tokens") && strings.Contains(msg, "not found")
 }
 
+// readUpstreamErrorBody 读取上游错误响应体，默认限制 512KiB。
+// 当 log_upstream_error_body 开启且 log_upstream_error_body_max_bytes 大于默认值时使用配置值。
+func (s *GatewayService) readUpstreamErrorBody(resp *http.Response) ([]byte, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, nil
+	}
+	limit := gatewayUpstreamErrorBodyReadLimit
+	if s != nil && s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes > int(limit) {
+		limit = int64(s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, limit))
+}
+
 func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	body, _ := s.readUpstreamErrorBody(resp)
 
 	// 调试日志：打印上游错误响应
 	logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (non-retryable): Account=%d(%s) Status=%d RequestID=%s Body=%s",
@@ -7282,7 +7307,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 }
 
 func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, resp *http.Response, account *Account) {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	body, _ := s.readUpstreamErrorBody(resp)
 	statusCode := resp.StatusCode
 
 	// OAuth/Setup Token 账号的 403：标记账号异常
@@ -7296,7 +7321,7 @@ func (s *GatewayService) handleRetryExhaustedSideEffects(ctx context.Context, re
 }
 
 func (s *GatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account) {
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	body, _ := s.readUpstreamErrorBody(resp)
 	s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
 }
 
@@ -7305,7 +7330,7 @@ func (s *GatewayService) handleFailoverSideEffects(ctx context.Context, resp *ht
 // API Key 未配置错误码：仅返回错误，不标记账号
 func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *http.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
 	// Capture upstream error body before side-effects consume the stream.
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	respBody, _ := s.readUpstreamErrorBody(resp)
 	_ = resp.Body.Close()
 	resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
