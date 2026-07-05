@@ -36,7 +36,24 @@ const (
 	// OpsSkipPassthroughKey 由 applyErrorPassthroughRule 在命中 skip_monitoring=true 的规则时设置。
 	// ops_error_logger 中间件检查此 key，为 true 时跳过错误记录。
 	OpsSkipPassthroughKey = "ops_skip_passthrough"
+
+	// ResponseCommittedKey 由 handleErrorResponse 系列函数在写完 HTTP 错误响应后设置。
+	// ensureForwardErrorResponse 检查此 key，为 true 时跳过兜底写入，避免在已完成的 JSON 后追加 SSE。
+	ResponseCommittedKey = "response_committed"
 )
+
+// MarkResponseCommitted 标记当前请求的 HTTP 响应已由 service 层写入完毕。
+func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
+
+// IsResponseCommitted 检查 service 层是否已写入完整的 HTTP 响应。
+func IsResponseCommitted(c *gin.Context) bool {
+	v, ok := c.Get(ResponseCommittedKey)
+	if !ok {
+		return false
+	}
+	b, _ := v.(bool)
+	return b
+}
 
 func setOpsUpstreamRequestBody(c *gin.Context, body []byte) {
 	if c == nil || len(body) == 0 {
