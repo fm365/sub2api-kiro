@@ -12,10 +12,24 @@ import (
 var (
 	ErrAccountNotFound = infraerrors.NotFound("ACCOUNT_NOT_FOUND", "account not found")
 	ErrAccountNilInput = infraerrors.BadRequest("ACCOUNT_NIL_INPUT", "account input cannot be nil")
+
+	ErrAccountNotInFallback = fmt.Errorf("account not in fallback")
 )
 
 const AccountListGroupUngrouped int64 = -1
 const AccountPrivacyModeUnsetFilter = "__unset__"
+
+// GroupAccountCapacityRow 聚合分组下各账号的调度容量信息
+type GroupAccountCapacityRow struct {
+	GroupID             int64
+	AccountID           int64
+	Concurrency         int
+	Extra               map[string]any
+	SessionWindowStart  *time.Time
+	SessionWindowEnd    *time.Time
+	SessionWindowStatus string
+}
+
 
 type AccountRepository interface {
 	Create(ctx context.Context, account *Account) error

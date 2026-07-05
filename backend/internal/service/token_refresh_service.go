@@ -258,7 +258,7 @@ func (s *TokenRefreshService) processRefresh() {
 
 // listActiveAccounts 获取后台 OAuth token 刷新候选账号。
 func (s *TokenRefreshService) listActiveAccounts(ctx context.Context) ([]Account, error) {
-	return s.accountRepo.ListOAuthRefreshCandidates(ctx)
+	return s.accountRepo.ListActive(ctx)
 }
 
 // refreshWithRetry 带重试的刷新
