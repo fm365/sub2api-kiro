@@ -94,12 +94,19 @@ type SMTPConfig struct {
 
 // EmailService 邮件服务
 type EmailService struct {
+	notificationEmailService *NotificationEmailService
 	settingRepo SettingRepository
 	cache       EmailCache
 }
 
 // NewEmailService 创建邮件服务实例
+
+func (s *EmailService) SetNotificationEmailService(svc *NotificationEmailService) {
+	s.notificationEmailService = svc
+}
+
 func NewEmailService(settingRepo SettingRepository, cache EmailCache) *EmailService {
+
 	return &EmailService{
 		settingRepo: settingRepo,
 		cache:       cache,

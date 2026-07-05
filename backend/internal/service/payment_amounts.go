@@ -3,6 +3,7 @@ package service
 import (
 	"math"
 
+	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/shopspring/decimal"
 )
 
@@ -22,7 +23,15 @@ func calculateCreditedBalance(paymentAmount, multiplier float64) float64 {
 		InexactFloat64()
 }
 
-func calculateGatewayRefundAmount(orderAmount, payAmount, refundAmount float64) float64 {
+func calculateGatewayPaymentAmount(orderAmount, multiplier float64, currency string) float64 {
+	fractionDigits := int32(payment.CurrencyMaxFractionDigits(currency))
+	return decimal.NewFromFloat(orderAmount).
+		Div(decimal.NewFromFloat(normalizeBalanceRechargeMultiplier(multiplier))).
+		Round(fractionDigits).
+		InexactFloat64()
+}
+
+func calculateGatewayRefundAmount(orderAmount, payAmount, refundAmount float64, currency string) float64 {
 	if orderAmount <= 0 || payAmount <= 0 || refundAmount <= 0 {
 		return 0
 	}

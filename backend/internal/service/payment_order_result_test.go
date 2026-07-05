@@ -91,6 +91,156 @@ func TestBuildCreateOrderResponseCopiesJSAPIPayload(t *testing.T) {
 	}
 }
 
+func TestValidateSelectedCreateOrderAmountCurrencyRejectsFractionalZeroDecimal(t *testing.T) {
+	t.Parallel()
+
+	err := validateSelectedCreateOrderAmountCurrency("100.50", &payment.InstanceSelection{
+		ProviderKey: payment.TypeStripe,
+		Config:      map[string]string{"currency": "JPY"},
+	})
+	if err == nil {
+		t.Fatal("expected fractional JPY amount to fail")
+	}
+	if appErr := infraerrors.FromError(err); appErr.Reason != "INVALID_AMOUNT" {
+		t.Fatalf("reason = %q, want INVALID_AMOUNT", appErr.Reason)
+	}
+}
+
+func TestCalculateCreateOrderPayAmountUsesCurrencyPrecision(t *testing.T) {
+	t.Parallel()
+
+	amountStr, amount, err := calculateCreateOrderPayAmount(100, 2.5, "JPY")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amountStr != "103" || amount != 103 {
+		t.Fatalf("JPY pay amount = (%q, %v), want (103, 103)", amountStr, amount)
+	}
+
+	amountStr, amount, err = calculateCreateOrderPayAmount(12.345, 1, "KWD")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amountStr != "12.469" || amount != 12.469 {
+		t.Fatalf("KWD pay amount = (%q, %v), want (12.469, 12.469)", amountStr, amount)
+	}
+}
+
+func TestCalculateCreateOrderPayAmountForSubscriptionAppliesCNYMultiplier(t *testing.T) {
+	t.Parallel()
+
+	amountStr, amount, err := calculateCreateOrderPayAmountForOrder(payment.OrderTypeSubscription, 7.99, 0, 0.14, "CNY")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amountStr != "57.07" || amount != 57.07 {
+		t.Fatalf("subscription CNY pay amount = (%q, %v), want (57.07, 57.07)", amountStr, amount)
+	}
+}
+
+func TestCalculateCreateOrderPayAmountForSubscriptionDefaultMultiplierKeepsPrice(t *testing.T) {
+	t.Parallel()
+
+	for _, multiplier := range []float64{0, 1} {
+		amountStr, amount, err := calculateCreateOrderPayAmountForOrder(payment.OrderTypeSubscription, 7.99, 0, multiplier, "CNY")
+		if err != nil {
+			t.Fatalf("unexpected error for multiplier %v: %v", multiplier, err)
+		}
+		if amountStr != "7.99" || amount != 7.99 {
+			t.Fatalf("multiplier %v pay amount = (%q, %v), want (7.99, 7.99)", multiplier, amountStr, amount)
+		}
+	}
+}
+
+func TestCalculateCreateOrderPayAmountForSubscriptionDoesNotConvertNonCNY(t *testing.T) {
+	t.Parallel()
+
+	amountStr, amount, err := calculateCreateOrderPayAmountForOrder(payment.OrderTypeSubscription, 7.99, 0, 0.14, "USD")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amountStr != "7.99" || amount != 7.99 {
+		t.Fatalf("subscription USD pay amount = (%q, %v), want (7.99, 7.99)", amountStr, amount)
+	}
+}
+
+func TestCalculateCreateOrderPayAmountForSubscriptionMatchesBalanceRechargeRatio(t *testing.T) {
+	t.Parallel()
+
+	credited := calculateCreditedBalance(10, 0.14)
+	if credited != 1.4 {
+		t.Fatalf("credited balance = %v, want 1.4", credited)
+	}
+	amountStr, amount, err := calculateCreateOrderPayAmountForOrder(payment.OrderTypeSubscription, credited, 0, 0.14, "CNY")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amountStr != "10.00" || amount != 10 {
+		t.Fatalf("subscription CNY pay amount = (%q, %v), want (10.00, 10)", amountStr, amount)
+	}
+}
+
+func TestCalculateCreateOrderPayAmountForSubscriptionAppliesFeeAfterMultiplier(t *testing.T) {
+	t.Parallel()
+
+	amountStr, amount, err := calculateCreateOrderPayAmountForOrder(payment.OrderTypeSubscription, 7.99, 2.5, 0.14, "CNY")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if amountStr != "58.50" || amount != 58.5 {
+		t.Fatalf("subscription CNY pay amount with fee = (%q, %v), want (58.50, 58.5)", amountStr, amount)
+	}
+}
+
+func TestCalculateCreateOrderPayAmountRejectsFractionalZeroDecimal(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := calculateCreateOrderPayAmount(100.5, 0, "JPY")
+	if err == nil {
+		t.Fatal("expected fractional JPY amount to fail")
+	}
+	if appErr := infraerrors.FromError(err); appErr.Reason != "INVALID_AMOUNT" {
+		t.Fatalf("reason = %q, want INVALID_AMOUNT", appErr.Reason)
+	}
+}
+
+func TestBuildPaymentSubjectAppliesAffixToSubscriptionPlanProductName(t *testing.T) {
+	t.Skip("kiro: affix feature not implemented")
+	t.Parallel()
+
+	svc := &PaymentService{}
+	cfg := &PaymentConfig{
+		ProductNamePrefix: "PRE",
+		ProductNameSuffix: "SUF",
+	}
+	plan := &dbent.SubscriptionPlan{
+		Name:        "Pro Monthly",
+		ProductName: "Claude Pro",
+	}
+
+	got := svc.buildPaymentSubject(plan, 0, cfg)
+	if got != "PRE Claude Pro SUF" {
+		t.Fatalf("buildPaymentSubject() = %q, want %q", got, "PRE Claude Pro SUF")
+	}
+}
+
+func TestBuildPaymentSubjectAppliesAffixToSubscriptionPlanDefaultName(t *testing.T) {
+	t.Skip("kiro: affix feature not implemented")
+	t.Parallel()
+
+	svc := &PaymentService{}
+	cfg := &PaymentConfig{
+		ProductNamePrefix: "PRE",
+		ProductNameSuffix: "SUF",
+	}
+	plan := &dbent.SubscriptionPlan{Name: "Team Monthly"}
+
+	got := svc.buildPaymentSubject(plan, 0, cfg)
+	if got != "PRE Sub2API Subscription Team Monthly SUF" {
+		t.Fatalf("buildPaymentSubject() = %q, want %q", got, "PRE Sub2API Subscription Team Monthly SUF")
+	}
+}
+
 func TestMaybeBuildWeChatOAuthRequiredResponse(t *testing.T) {
 	t.Setenv("PAYMENT_RESUME_SIGNING_KEY", "0123456789abcdef0123456789abcdef")
 

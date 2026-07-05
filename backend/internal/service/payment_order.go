@@ -48,6 +48,9 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if user.Status != payment.EntityStatusActive {
 		return nil, infraerrors.Forbidden("USER_INACTIVE", "user account is disabled")
 	}
+	if s.notificationEmailService != nil {
+		s.notificationEmailService.RememberRecipientLocale(ctx, req.UserID, user.Email, req.Locale)
+	}
 	orderAmount := req.Amount
 	limitAmount := req.Amount
 	if plan != nil {
@@ -57,13 +60,35 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 		orderAmount = calculateCreditedBalance(req.Amount, cfg.BalanceRechargeMultiplier)
 	}
 	feeRate := cfg.RechargeFeeRate
-	payAmountStr := payment.CalculatePayAmount(limitAmount, feeRate)
-	payAmount, _ := strconv.ParseFloat(payAmountStr, 64)
+	methodCurrency := payment.DefaultPaymentCurrency
+	if s.configService != nil {
+		methodCurrency, err = s.configService.ValidateMethodCurrencyConsistency(ctx, req.PaymentType)
+		if err != nil {
+			return nil, err
+		}
+	}
+	payAmountStr, payAmount, err := calculateCreateOrderPayAmountForOrder(req.OrderType, limitAmount, feeRate, cfg.BalanceRechargeMultiplier, methodCurrency)
+	if err != nil {
+		return nil, err
+	}
 	sel, err := s.selectCreateOrderInstance(ctx, req, cfg, payAmount)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.validateSelectedCreateOrderInstance(ctx, req, sel); err != nil {
+		return nil, err
+	}
+	selectedCurrency := payment.DefaultPaymentCurrency
+	if sel != nil {
+		selectedCurrency = paymentProviderConfigCurrency(sel.ProviderKey, sel.Config)
+	}
+	if selectedCurrency != methodCurrency {
+		payAmountStr, payAmount, err = calculateCreateOrderPayAmountForOrder(req.OrderType, limitAmount, feeRate, cfg.BalanceRechargeMultiplier, selectedCurrency)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := validateSelectedCreateOrderAmountCurrency(payAmountStr, sel); err != nil {
 		return nil, err
 	}
 	oauthResp, err := s.maybeBuildWeChatOAuthRequiredResponseForSelection(ctx, req, limitAmount, payAmount, feeRate, sel)
@@ -536,6 +561,57 @@ func (s *PaymentService) validateSelectedCreateOrderInstance(ctx context.Context
 	selectedAppID := provider.ResolveWxpayJSAPIAppID(sel.Config)
 	if selectedAppID == "" || selectedAppID != expectedAppID {
 		return infraerrors.TooManyRequests("NO_AVAILABLE_INSTANCE", "selected payment instance is not compatible with the current WeChat OAuth app")
+	}
+	return nil
+}
+
+func calculateCreateOrderPayAmount(limitAmount, feeRate float64, currency string) (string, float64, error) {
+	if err := validateCreateOrderAmountCurrency(limitAmount, currency); err != nil {
+		return "", 0, err
+	}
+	payAmountStr := payment.CalculatePayAmountForCurrency(limitAmount, feeRate, currency)
+	if _, err := payment.AmountToMinorUnit(payAmountStr, currency); err != nil {
+		return "", 0, infraerrors.BadRequest("INVALID_AMOUNT", err.Error()).
+			WithMetadata(map[string]string{"currency": currency})
+	}
+	payAmount, err := strconv.ParseFloat(payAmountStr, 64)
+	if err != nil {
+		return "", 0, infraerrors.BadRequest("INVALID_AMOUNT", "invalid payment amount").
+			WithMetadata(map[string]string{"currency": currency})
+	}
+	return payAmountStr, payAmount, nil
+}
+
+func calculateCreateOrderPayAmountForOrder(orderType string, limitAmount, feeRate, multiplier float64, currency string) (string, float64, error) {
+	paymentAmount := calculateCreateOrderPaymentAmount(orderType, limitAmount, multiplier, currency)
+	return calculateCreateOrderPayAmount(paymentAmount, feeRate, currency)
+}
+
+func calculateCreateOrderPaymentAmount(orderType string, limitAmount, multiplier float64, currency string) float64 {
+	normalizedCurrency, err := payment.NormalizePaymentCurrency(currency)
+	if err != nil || normalizedCurrency != payment.DefaultPaymentCurrency || orderType != payment.OrderTypeSubscription {
+		return limitAmount
+	}
+	return calculateGatewayPaymentAmount(limitAmount, multiplier, normalizedCurrency)
+}
+
+func validateCreateOrderAmountCurrency(amount float64, currency string) error {
+	amountStr := strconv.FormatFloat(amount, 'f', -1, 64)
+	if _, err := payment.AmountToMinorUnit(amountStr, currency); err != nil {
+		return infraerrors.BadRequest("INVALID_AMOUNT", err.Error()).
+			WithMetadata(map[string]string{"currency": currency})
+	}
+	return nil
+}
+
+func validateSelectedCreateOrderAmountCurrency(payAmount string, sel *payment.InstanceSelection) error {
+	if sel == nil {
+		return nil
+	}
+	currency := paymentProviderConfigCurrency(sel.ProviderKey, sel.Config)
+	if _, err := payment.AmountToMinorUnit(payAmount, currency); err != nil {
+		return infraerrors.BadRequest("INVALID_AMOUNT", err.Error()).
+			WithMetadata(map[string]string{"currency": currency})
 	}
 	return nil
 }

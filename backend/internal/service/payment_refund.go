@@ -229,7 +229,7 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 	if amt-o.Amount > amountToleranceCNY {
 		return nil, nil, infraerrors.BadRequest("REFUND_AMOUNT_EXCEEDED", "refund amount exceeds recharge")
 	}
-	ga := calculateGatewayRefundAmount(o.Amount, o.PayAmount, amt)
+	ga := calculateGatewayRefundAmount(o.Amount, o.PayAmount, amt, "CNY")
 	rr := strings.TrimSpace(reason)
 	if rr == "" && o.RefundRequestReason != nil {
 		rr = *o.RefundRequestReason
