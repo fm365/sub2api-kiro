@@ -556,12 +556,15 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	EnableFingerprintUnification       *bool `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough          *bool `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                   *bool `json:"enable_cch_signing"`
-	EnableAnthropicCacheTTL1hInjection *bool `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl         *bool `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization  *bool `json:"enable_client_dateline_normalization"`
+	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection *bool   `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                *string `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks          *string `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection     *bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization      *bool   `json:"enable_client_dateline_normalization"`
 
 	// Payment visible method routing
 	PaymentVisibleMethodAlipaySource  *string `json:"payment_visible_method_alipay_source"`
@@ -1567,6 +1570,24 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.EnableCCHSigning
 		}(),
+		EnableClaudeOAuthSystemPromptInjection: func() bool {
+			if req.EnableClaudeOAuthSystemPromptInjection != nil {
+				return *req.EnableClaudeOAuthSystemPromptInjection
+			}
+			return previousSettings.EnableClaudeOAuthSystemPromptInjection
+		}(),
+		ClaudeOAuthSystemPrompt: func() string {
+			if req.ClaudeOAuthSystemPrompt != nil {
+				return *req.ClaudeOAuthSystemPrompt
+			}
+			return previousSettings.ClaudeOAuthSystemPrompt
+		}(),
+		ClaudeOAuthSystemPromptBlocks: func() string {
+			if req.ClaudeOAuthSystemPromptBlocks != nil {
+				return *req.ClaudeOAuthSystemPromptBlocks
+			}
+			return previousSettings.ClaudeOAuthSystemPromptBlocks
+		}(),
 		EnableAnthropicCacheTTL1hInjection: func() bool {
 			if req.EnableAnthropicCacheTTL1hInjection != nil {
 				return *req.EnableAnthropicCacheTTL1hInjection
@@ -2385,6 +2406,15 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.EnableCCHSigning != after.EnableCCHSigning {
 		changed = append(changed, "enable_cch_signing")
+	}
+	if before.EnableClaudeOAuthSystemPromptInjection != after.EnableClaudeOAuthSystemPromptInjection {
+		changed = append(changed, "enable_claude_oauth_system_prompt_injection")
+	}
+	if before.ClaudeOAuthSystemPrompt != after.ClaudeOAuthSystemPrompt {
+		changed = append(changed, "claude_oauth_system_prompt")
+	}
+	if before.ClaudeOAuthSystemPromptBlocks != after.ClaudeOAuthSystemPromptBlocks {
+		changed = append(changed, "claude_oauth_system_prompt_blocks")
 	}
 	if before.EnableAnthropicCacheTTL1hInjection != after.EnableAnthropicCacheTTL1hInjection {
 		changed = append(changed, "enable_anthropic_cache_ttl_1h_injection")

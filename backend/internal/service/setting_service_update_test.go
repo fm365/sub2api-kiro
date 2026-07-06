@@ -254,3 +254,30 @@ func TestSettingService_UpdateSettings_RejectsInvalidPaymentVisibleMethodSource(
 	require.Equal(t, "INVALID_PAYMENT_VISIBLE_METHOD_SOURCE", infraerrors.Reason(err))
 	require.Nil(t, repo.updates)
 }
+
+func TestSettingService_UpdateSettings_ClaudeOAuthSystemPromptBlocksValidated(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		EnableClaudeOAuthSystemPromptInjection: true,
+		ClaudeOAuthSystemPrompt:                "You are Claude Code.",
+		ClaudeOAuthSystemPromptBlocks:          `[{"type":"text","text":"You are Claude Code."}]`,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "true", repo.updates[SettingKeyEnableClaudeOAuthSystemPromptInjection])
+	require.Equal(t, "You are Claude Code.", repo.updates[SettingKeyClaudeOAuthSystemPrompt])
+	require.Equal(t, `[{"type":"text","text":"You are Claude Code."}]`, repo.updates[SettingKeyClaudeOAuthSystemPromptBlocks])
+}
+
+func TestSettingService_UpdateSettings_ClaudeOAuthSystemPromptBlocksRejectsInvalidJSON(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		ClaudeOAuthSystemPromptBlocks: `not-json`,
+	})
+	require.Error(t, err)
+	require.Equal(t, "claude_oauth_system_prompt_blocks must be valid JSON array", err.Error()[:len("claude_oauth_system_prompt_blocks must be valid JSON array")])
+	require.Nil(t, repo.updates)
+}
