@@ -3441,6 +3441,8 @@ export default {
         '启用后，上游 429/403/401 错误将自动重试而不标记账号限流或错误，适用于上游指向另一个 sub2api 实例的场景。',
       poolModeRetryCount: '同账号重试次数',
       poolModeRetryCountHint: '仅在池模式下生效。0 表示不原地重试；默认 {default}，最大 {max}。',
+      poolModeRetryStatusCodes: '重试状态码',
+      poolModeRetryStatusCodesHint: '逗号分隔的上游 HTTP 状态码；池模式下这些状态会触发同账号重试。留空使用默认值：{default}。',
       customErrorCodes: '自定义错误码',
       customErrorCodesHint: '仅对选中的错误码停止调度',
       customErrorCodesWarning: '仅选中的错误码会停止调度，其他错误将返回 500。',
