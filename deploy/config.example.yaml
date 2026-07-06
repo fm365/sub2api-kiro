@@ -317,6 +317,9 @@ gateway:
       queue: 0.7
       error_rate: 0.8
       ttft: 0.5
+      # use-it-or-lose-it：倾向「会话窗口最早重置」的账号，剩余重置时间越短得分越高。
+      # 0 表示关闭（默认，不改变原有行为）；调大可让即将重置的账号被优先用尽。
+      reset: 0.0
   # HTTP upstream connection pool settings (HTTP/2 + multi-proxy scenario defaults)
   # HTTP 上游连接池配置（HTTP/2 + 多代理场景默认值）
   # Max idle connections across all hosts
@@ -402,6 +405,8 @@ gateway:
     # Fallback max waiting queue size
     # 兜底最大排队长度
     fallback_max_waiting: 100
+    # Prefer the account whose session window resets soonest (use-it-or-lose-it).
+    prefer_soonest_reset: false
     # Enable batch load calculation for scheduling
     # 启用调度批量负载计算
     load_batch_enabled: true
@@ -998,6 +1003,10 @@ billing:
     # Number of requests to allow in half-open state
     # 半开状态允许通过的请求数
     half_open_requests: 3
+  # Conservative minimum balance required before forwarding balance-billed requests.
+  # Set to 0 to only require balance > 0.
+  # 余额计费请求转发前要求的保守最小余额；设为 0 则仅要求余额 > 0。
+  minimum_balance_reserve: 0.000001
 
 # =============================================================================
 # Turnstile Configuration
