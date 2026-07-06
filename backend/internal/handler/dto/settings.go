@@ -180,6 +180,7 @@ type SystemSettings struct {
 	EnableCCHSigning                   bool `json:"enable_cch_signing"`
 	EnableAnthropicCacheTTL1hInjection bool `json:"enable_anthropic_cache_ttl_1h_injection"`
 	RewriteMessageCacheControl         bool `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization  bool `json:"enable_client_dateline_normalization"`
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool `json:"web_search_emulation_enabled"`

@@ -503,6 +503,7 @@ export interface SystemSettings {
   enable_cch_signing: boolean;
   enable_anthropic_cache_ttl_1h_injection: boolean;
   rewrite_message_cache_control: boolean;
+  enable_client_dateline_normalization: boolean;
   web_search_emulation_enabled?: boolean;
 
   // Payment configuration
@@ -721,6 +722,7 @@ export interface UpdateSettingsRequest {
   enable_cch_signing?: boolean;
   enable_anthropic_cache_ttl_1h_injection?: boolean;
   rewrite_message_cache_control?: boolean;
+  enable_client_dateline_normalization?: boolean;
   // Payment configuration
   payment_enabled?: boolean;
   risk_control_enabled?: boolean;
