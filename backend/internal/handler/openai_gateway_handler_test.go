@@ -179,6 +179,9 @@ func TestOpenAIEnsureForwardErrorResponse_DoesNotOverrideWrittenResponse(t *test
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	// Service layer marks response as committed when it writes a complete error JSON.
+	// ensureForwardErrorResponse must respect this and not append anything.
+	service.MarkResponseCommitted(c)
 	c.String(http.StatusTeapot, "already written")
 
 	h := &OpenAIGatewayHandler{}
@@ -272,6 +275,8 @@ func TestOpenAIRecoverResponsesPanic_DoesNotOverrideWrittenResponse(t *testing.T
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	// Service layer marks response as committed before panic occurs.
+	service.MarkResponseCommitted(c)
 	c.String(http.StatusTeapot, "already written")
 
 	h := &OpenAIGatewayHandler{}
