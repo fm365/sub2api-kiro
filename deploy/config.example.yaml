@@ -998,6 +998,10 @@ billing:
     # Number of requests to allow in half-open state
     # 半开状态允许通过的请求数
     half_open_requests: 3
+  # Conservative minimum balance required before forwarding balance-billed requests.
+  # Set to 0 to only require balance > 0.
+  # 余额计费请求转发前要求的保守最小余额；设为 0 则仅要求余额 > 0。
+  minimum_balance_reserve: 0.000001
 
 # =============================================================================
 # Turnstile Configuration
