@@ -3679,6 +3679,53 @@
                 <Toggle v-model="form.enable_cch_signing" />
               </div>
 
+              <!-- Claude OAuth System Prompt Injection -->
+              <div class="flex items-center justify-between">
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.claudeOAuthSystemPromptInjection",
+                      )
+                    }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      t(
+                        "admin.settings.gatewayForwarding.claudeOAuthSystemPromptInjectionHint",
+                      )
+                    }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.enable_claude_oauth_system_prompt_injection"
+                />
+              </div>
+
+              <div class="space-y-2">
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t("admin.settings.gatewayForwarding.claudeOAuthSystemPrompt") }}
+                </label>
+                <Textarea
+                  v-model="form.claude_oauth_system_prompt"
+                  :placeholder="t('admin.settings.gatewayForwarding.claudeOAuthSystemPromptPlaceholder')"
+                  rows="4"
+                />
+              </div>
+
+              <div class="space-y-2">
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t("admin.settings.gatewayForwarding.claudeOAuthSystemPromptBlocks") }}
+                </label>
+                <Textarea
+                  v-model="form.claude_oauth_system_prompt_blocks"
+                  :placeholder="t('admin.settings.gatewayForwarding.claudeOAuthSystemPromptBlocksPlaceholder')"
+                  rows="4"
+                />
+              </div>
+
               <!-- Anthropic Cache TTL 1h Injection -->
               <div class="flex items-center justify-between">
                 <div>
@@ -6837,6 +6884,9 @@ const form = reactive<SettingsForm>({
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
+  enable_claude_oauth_system_prompt_injection: true,
+  claude_oauth_system_prompt: '',
+  claude_oauth_system_prompt_blocks: '',
   enable_anthropic_cache_ttl_1h_injection: false,
   rewrite_message_cache_control: false,
   enable_client_dateline_normalization: true,
@@ -7935,6 +7985,11 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       enable_cch_signing: form.enable_cch_signing,
+      enable_claude_oauth_system_prompt_injection:
+        form.enable_claude_oauth_system_prompt_injection,
+      claude_oauth_system_prompt: form.claude_oauth_system_prompt,
+      claude_oauth_system_prompt_blocks:
+        form.claude_oauth_system_prompt_blocks,
       enable_anthropic_cache_ttl_1h_injection:
         form.enable_anthropic_cache_ttl_1h_injection,
       rewrite_message_cache_control: form.rewrite_message_cache_control,
