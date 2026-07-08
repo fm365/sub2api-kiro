@@ -268,10 +268,12 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 	svc := newTestBillingService()
 
 	tests := []struct {
-		name             string
-		model            string
-		expectedInput    float64
-		expectNilPricing bool
+		name              string
+		model             string
+		expectedInput     float64
+		expectedOutput    float64
+		expectedCacheRead float64
+		expectNilPricing  bool
 	}{
 		{name: "empty model", model: "   ", expectNilPricing: true},
 		{name: "claude opus 4.6", model: "claude-opus-4.6-20260201", expectedInput: 5e-6},
@@ -520,7 +522,7 @@ model:             "kimi-k2-0905-preview",
 expectedInput:     0.56e-6,
 expectedOutput:    2.24e-6,
 expectedCacheRead: 0.14e-6,
-}, (feat(billing): add GLM / Kimi / MiniMax fallback pricing for Chinese LLM providers)
+},
 	}
 
 	for _, tt := range tests {
@@ -532,6 +534,12 @@ expectedCacheRead: 0.14e-6,
 			}
 			require.NotNil(t, pricing)
 			require.InDelta(t, tt.expectedInput, pricing.InputPricePerToken, 1e-12)
+			if tt.expectedOutput > 0 {
+				require.InDelta(t, tt.expectedOutput, pricing.OutputPricePerToken, 1e-12)
+			}
+			if tt.expectedCacheRead > 0 {
+				require.InDelta(t, tt.expectedCacheRead, pricing.CacheReadPricePerToken, 1e-12)
+			}
 		})
 	}
 }
