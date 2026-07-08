@@ -4758,7 +4758,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if readErr == nil {
 				_ = resp.Body.Close()
 
-				if s.shouldRectifySignatureError(ctx, account, respBody) {
+				if s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 						Platform:           account.Platform,
 						AccountID:          account.ID,
@@ -4833,7 +4833,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 								msg2 := extractUpstreamErrorMessage(retryRespBody)
 								if looksLikeToolSignatureError(msg2) && time.Since(retryStart) < maxRetryElapsed {
 									logger.LegacyPrintf("service.gateway", "Account %d: signature retry still failing and looks tool-related, retrying with tool blocks downgraded", account.ID)
-									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body)
+									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body, reqModel)
 									retryCtx2, releaseRetryCtx2 := detachStreamUpstreamContext(ctx, reqStream)
 									retryReq2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									releaseRetryCtx2()
@@ -7068,7 +7068,14 @@ func truncateForLog(b []byte, maxBytes int) string {
 
 // shouldRectifySignatureError 统一判断是否应触发签名整流（strip thinking blocks 并重试）。
 // 根据账号类型检查对应的开关和匹配模式。
-func (s *GatewayService) shouldRectifySignatureError(ctx context.Context, account *Account, respBody []byte) bool {
+//
+// mappedModel 用于按 thinking 协议族分流：passback-required (DeepSeek/Kimi/GLM 等) 上游
+// 的 400 不是签名缺失问题，retry 任何 thinking 变形都会破坏「原样回传」契约——直接透传
+// 错误给客户端。详见 thinking_protocol.go。
+func (s *GatewayService) shouldRectifySignatureError(ctx context.Context, account *Account, respBody []byte, mappedModel string) bool {
+	if !ShouldRectifyThinkingSignatureError(mappedModel) {
+		return false
+	}
 	if account.Type == AccountTypeAPIKey {
 		// API Key 账号：独立开关，一次读取配置
 		settings, err := s.settingService.GetRectifierSettings(ctx)
@@ -9431,7 +9438,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 检测 thinking block 签名错误（400）并重试一次（过滤 thinking blocks）
-	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody) {
+	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
 
 		filteredBody := FilterThinkingBlocksForRetry(body, reqModel)

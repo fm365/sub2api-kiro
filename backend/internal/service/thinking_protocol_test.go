@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestResolveThinkingProtocol(t *testing.T) {
 	tests := []struct {
@@ -110,5 +113,28 @@ func TestShouldApplyRetryFiltersMirrorsPreFilter(t *testing.T) {
 					m, got, ShouldPreFilterThinkingBlocks(m))
 			}
 		})
+	}
+}
+
+func TestFilterSignatureSensitiveBlocksForRetrySkipsNonStrictProtocols(t *testing.T) {
+	body := []byte(`{"thinking":{"type":"enabled","budget_tokens":1024},"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"keep me"},{"type":"tool_use","id":"toolu_1","name":"lookup","input":{"q":"x"}}]}]}`)
+	for _, model := range []string{"deepseek-v4-pro", "kimi-coding", "glm-5.1", "gpt-5.1", ""} {
+		t.Run(model, func(t *testing.T) {
+			out := FilterSignatureSensitiveBlocksForRetry(body, model)
+			if string(out) != string(body) {
+				t.Fatalf("FilterSignatureSensitiveBlocksForRetry(%q) changed non-strict body: %s", model, out)
+			}
+		})
+	}
+}
+
+func TestFilterSignatureSensitiveBlocksForRetryAppliesToAnthropicStrict(t *testing.T) {
+	body := []byte(`{"thinking":{"type":"enabled","budget_tokens":1024},"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"convert me"},{"type":"tool_use","id":"toolu_1","name":"lookup","input":{"q":"x"}}]}]}`)
+	out := FilterSignatureSensitiveBlocksForRetry(body, "claude-sonnet-4-5")
+	if string(out) == string(body) {
+		t.Fatal("anthropic-strict body should be transformed")
+	}
+	if strings.Contains(string(out), `"type":"thinking"`) || strings.Contains(string(out), `"type":"tool_use"`) {
+		t.Fatalf("anthropic-strict transformed body still contains signature-sensitive blocks: %s", out)
 	}
 }

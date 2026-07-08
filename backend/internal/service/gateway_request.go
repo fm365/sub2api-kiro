@@ -731,7 +731,14 @@ func removeThinkingDependentContextStrategies(body []byte) []byte {
 //
 // Use this only when needed: converting tool blocks to text changes model behaviour and can increase the
 // risk of prompt injection (tool output becomes plain conversation text).
-func FilterSignatureSensitiveBlocksForRetry(body []byte) []byte {
+//
+// mappedModel 同 FilterThinkingBlocksForRetry：仅 anthropic-strict 执行变形；
+// passback-required 与 unknown 都返回原 body，避免在不熟悉的上游上盲目变形。
+func FilterSignatureSensitiveBlocksForRetry(body []byte, mappedModel string) []byte {
+	if !ShouldApplyRetryFilters(mappedModel) {
+		return body
+	}
+
 	// Fast path: only run when we see likely relevant constructs.
 	if !bytes.Contains(body, []byte(`"type":"thinking"`)) &&
 		!bytes.Contains(body, []byte(`"type": "thinking"`)) &&

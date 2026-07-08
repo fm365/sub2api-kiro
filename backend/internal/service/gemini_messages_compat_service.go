@@ -834,7 +834,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					signatureRetryStage = 1
 				default:
 					// Stage 2: additionally downgrade tool_use/tool_result blocks to text
-					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody)
+					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody, originalModel)
 					stageName = "thinking+tools"
 					signatureRetryStage = 2
 				}

@@ -607,7 +607,7 @@ func TestFilterSignatureSensitiveBlocksForRetry_DowngradesTools(t *testing.T) {
 		]
 	}`)
 
-	out := FilterSignatureSensitiveBlocksForRetry(input)
+	out := FilterSignatureSensitiveBlocksForRetry(input, "claude-sonnet-4-5")
 
 	var req map[string]any
 	require.NoError(t, json.Unmarshal(out, &req))
@@ -767,7 +767,7 @@ func TestFilterSignatureSensitiveBlocksForRetry_RemovesClearThinkingStrategy(t *
 		]
 	}`)
 
-	out := FilterSignatureSensitiveBlocksForRetry(input)
+	out := FilterSignatureSensitiveBlocksForRetry(input, "claude-sonnet-4-5")
 
 	var req map[string]any
 	require.NoError(t, json.Unmarshal(out, &req))
@@ -798,7 +798,7 @@ func TestFilterSignatureSensitiveBlocksForRetry_PreservesNonThinkingStrategies(t
 		]
 	}`)
 
-	out := FilterSignatureSensitiveBlocksForRetry(input)
+	out := FilterSignatureSensitiveBlocksForRetry(input, "claude-sonnet-4-5")
 
 	var req map[string]any
 	require.NoError(t, json.Unmarshal(out, &req))
@@ -824,7 +824,7 @@ func TestFilterSignatureSensitiveBlocksForRetry_NoThinkingField_ContextManagemen
 		]
 	}`)
 
-	out := FilterSignatureSensitiveBlocksForRetry(input)
+	out := FilterSignatureSensitiveBlocksForRetry(input, "claude-sonnet-4-5")
 
 	var req map[string]any
 	require.NoError(t, json.Unmarshal(out, &req))
