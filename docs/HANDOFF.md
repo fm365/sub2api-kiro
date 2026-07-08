@@ -45,4 +45,3 @@ Batch 2 在 worktree 中待合并；P3 billing fallback warn dedup (#3394) 已 s
    ```
 2. 评估 Batch 2 worktree 中尚未合入 main 的 P2/P3 commits，逐批做独立 worktree 验证
 3. 对照 upstream-sync-report-v3.md 处理 P3 列表 + upstream 新增 commits
-
