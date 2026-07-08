@@ -56,6 +56,14 @@ const (
 	FieldImagePrice2k = "image_price_2k"
 	// FieldImagePrice4k holds the string denoting the image_price_4k field in the database.
 	FieldImagePrice4k = "image_price_4k"
+	// FieldPeakRateEnabled holds the string denoting the peak_rate_enabled field in the database.
+	FieldPeakRateEnabled = "peak_rate_enabled"
+	// FieldPeakStart holds the string denoting the peak_start field in the database.
+	FieldPeakStart = "peak_start"
+	// FieldPeakEnd holds the string denoting the peak_end field in the database.
+	FieldPeakEnd = "peak_end"
+	// FieldPeakRateMultiplier holds the string denoting the peak_rate_multiplier field in the database.
+	FieldPeakRateMultiplier = "peak_rate_multiplier"
 	// FieldClaudeCodeOnly holds the string denoting the claude_code_only field in the database.
 	FieldClaudeCodeOnly = "claude_code_only"
 	// FieldFallbackGroupID holds the string denoting the fallback_group_id field in the database.
@@ -179,6 +187,10 @@ var Columns = []string{
 	FieldImagePrice1k,
 	FieldImagePrice2k,
 	FieldImagePrice4k,
+	FieldPeakRateEnabled,
+	FieldPeakStart,
+	FieldPeakEnd,
+	FieldPeakRateMultiplier,
 	FieldClaudeCodeOnly,
 	FieldFallbackGroupID,
 	FieldFallbackGroupIDOnInvalidRequest,
@@ -254,6 +266,18 @@ var (
 	DefaultImageRateIndependent bool
 	// DefaultImageRateMultiplier holds the default value on creation for the "image_rate_multiplier" field.
 	DefaultImageRateMultiplier float64
+	// DefaultPeakRateEnabled holds the default value on creation for the "peak_rate_enabled" field.
+	DefaultPeakRateEnabled bool
+	// DefaultPeakStart holds the default value on creation for the "peak_start" field.
+	DefaultPeakStart string
+	// PeakStartValidator is a validator for the "peak_start" field. It is called by the builders before save.
+	PeakStartValidator func(string) error
+	// DefaultPeakEnd holds the default value on creation for the "peak_end" field.
+	DefaultPeakEnd string
+	// PeakEndValidator is a validator for the "peak_end" field. It is called by the builders before save.
+	PeakEndValidator func(string) error
+	// DefaultPeakRateMultiplier holds the default value on creation for the "peak_rate_multiplier" field.
+	DefaultPeakRateMultiplier float64
 	// DefaultClaudeCodeOnly holds the default value on creation for the "claude_code_only" field.
 	DefaultClaudeCodeOnly bool
 	// DefaultModelRoutingEnabled holds the default value on creation for the "model_routing_enabled" field.
@@ -386,6 +410,26 @@ func ByImagePrice2k(opts ...sql.OrderTermOption) OrderOption {
 // ByImagePrice4k orders the results by the image_price_4k field.
 func ByImagePrice4k(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldImagePrice4k, opts...).ToFunc()
+}
+
+// ByPeakRateEnabled orders the results by the peak_rate_enabled field.
+func ByPeakRateEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPeakRateEnabled, opts...).ToFunc()
+}
+
+// ByPeakStart orders the results by the peak_start field.
+func ByPeakStart(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPeakStart, opts...).ToFunc()
+}
+
+// ByPeakEnd orders the results by the peak_end field.
+func ByPeakEnd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPeakEnd, opts...).ToFunc()
+}
+
+// ByPeakRateMultiplier orders the results by the peak_rate_multiplier field.
+func ByPeakRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPeakRateMultiplier, opts...).ToFunc()
 }
 
 // ByClaudeCodeOnly orders the results by the claude_code_only field.

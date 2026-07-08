@@ -29,6 +29,7 @@ const (
 
 	opsUpstreamModelKey = "ops_upstream_model"
 	opsRequestTypeKey   = "ops_request_type"
+	opsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
 
 	// 错误过滤匹配常量 — shouldSkipOpsErrorLog 和错误分类共用
 	opsErrContextCanceled            = "context canceled"
@@ -1304,3 +1305,19 @@ func shouldSkipOpsErrorLog(ctx context.Context, ops *service.OpsService, message
 
 	return false
 }
+func markOpsRoutingCapacityLimited(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(opsRoutingCapacityLimitedKey, true)
+}
+
+func markOpsRoutingCapacityLimitedIfNoAvailable(c *gin.Context, err error) {
+	if c == nil || err == nil {
+		return
+	}
+	if strings.Contains(strings.ToLower(err.Error()), opsErrNoAvailableAccounts) {
+		c.Set(opsRoutingCapacityLimitedKey, true)
+	}
+}
+

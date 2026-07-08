@@ -14774,6 +14774,11 @@ type GroupMutation struct {
 	addimage_price_2k                       *float64
 	image_price_4k                          *float64
 	addimage_price_4k                       *float64
+	peak_rate_enabled                       *bool
+	peak_start                              *string
+	peak_end                                *string
+	peak_rate_multiplier                    *float64
+	addpeak_rate_multiplier                 *float64
 	claude_code_only                        *bool
 	fallback_group_id                       *int64
 	addfallback_group_id                    *int64
@@ -15925,6 +15930,170 @@ func (m *GroupMutation) ResetImagePrice4k() {
 	delete(m.clearedFields, group.FieldImagePrice4k)
 }
 
+// SetPeakRateEnabled sets the "peak_rate_enabled" field.
+func (m *GroupMutation) SetPeakRateEnabled(b bool) {
+	m.peak_rate_enabled = &b
+}
+
+// PeakRateEnabled returns the value of the "peak_rate_enabled" field in the mutation.
+func (m *GroupMutation) PeakRateEnabled() (r bool, exists bool) {
+	v := m.peak_rate_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakRateEnabled returns the old "peak_rate_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldPeakRateEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakRateEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakRateEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakRateEnabled: %w", err)
+	}
+	return oldValue.PeakRateEnabled, nil
+}
+
+// ResetPeakRateEnabled resets all changes to the "peak_rate_enabled" field.
+func (m *GroupMutation) ResetPeakRateEnabled() {
+	m.peak_rate_enabled = nil
+}
+
+// SetPeakStart sets the "peak_start" field.
+func (m *GroupMutation) SetPeakStart(s string) {
+	m.peak_start = &s
+}
+
+// PeakStart returns the value of the "peak_start" field in the mutation.
+func (m *GroupMutation) PeakStart() (r string, exists bool) {
+	v := m.peak_start
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakStart returns the old "peak_start" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldPeakStart(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakStart is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakStart requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakStart: %w", err)
+	}
+	return oldValue.PeakStart, nil
+}
+
+// ResetPeakStart resets all changes to the "peak_start" field.
+func (m *GroupMutation) ResetPeakStart() {
+	m.peak_start = nil
+}
+
+// SetPeakEnd sets the "peak_end" field.
+func (m *GroupMutation) SetPeakEnd(s string) {
+	m.peak_end = &s
+}
+
+// PeakEnd returns the value of the "peak_end" field in the mutation.
+func (m *GroupMutation) PeakEnd() (r string, exists bool) {
+	v := m.peak_end
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakEnd returns the old "peak_end" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldPeakEnd(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakEnd is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakEnd requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakEnd: %w", err)
+	}
+	return oldValue.PeakEnd, nil
+}
+
+// ResetPeakEnd resets all changes to the "peak_end" field.
+func (m *GroupMutation) ResetPeakEnd() {
+	m.peak_end = nil
+}
+
+// SetPeakRateMultiplier sets the "peak_rate_multiplier" field.
+func (m *GroupMutation) SetPeakRateMultiplier(f float64) {
+	m.peak_rate_multiplier = &f
+	m.addpeak_rate_multiplier = nil
+}
+
+// PeakRateMultiplier returns the value of the "peak_rate_multiplier" field in the mutation.
+func (m *GroupMutation) PeakRateMultiplier() (r float64, exists bool) {
+	v := m.peak_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPeakRateMultiplier returns the old "peak_rate_multiplier" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldPeakRateMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPeakRateMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPeakRateMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPeakRateMultiplier: %w", err)
+	}
+	return oldValue.PeakRateMultiplier, nil
+}
+
+// AddPeakRateMultiplier adds f to the "peak_rate_multiplier" field.
+func (m *GroupMutation) AddPeakRateMultiplier(f float64) {
+	if m.addpeak_rate_multiplier != nil {
+		*m.addpeak_rate_multiplier += f
+	} else {
+		m.addpeak_rate_multiplier = &f
+	}
+}
+
+// AddedPeakRateMultiplier returns the value that was added to the "peak_rate_multiplier" field in this mutation.
+func (m *GroupMutation) AddedPeakRateMultiplier() (r float64, exists bool) {
+	v := m.addpeak_rate_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetPeakRateMultiplier resets all changes to the "peak_rate_multiplier" field.
+func (m *GroupMutation) ResetPeakRateMultiplier() {
+	m.peak_rate_multiplier = nil
+	m.addpeak_rate_multiplier = nil
+}
+
 // SetClaudeCodeOnly sets the "claude_code_only" field.
 func (m *GroupMutation) SetClaudeCodeOnly(b bool) {
 	m.claude_code_only = &b
@@ -16923,7 +17092,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 34)
+	fields := make([]string, 0, 38)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -16983,6 +17152,18 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.image_price_4k != nil {
 		fields = append(fields, group.FieldImagePrice4k)
+	}
+	if m.peak_rate_enabled != nil {
+		fields = append(fields, group.FieldPeakRateEnabled)
+	}
+	if m.peak_start != nil {
+		fields = append(fields, group.FieldPeakStart)
+	}
+	if m.peak_end != nil {
+		fields = append(fields, group.FieldPeakEnd)
+	}
+	if m.peak_rate_multiplier != nil {
+		fields = append(fields, group.FieldPeakRateMultiplier)
 	}
 	if m.claude_code_only != nil {
 		fields = append(fields, group.FieldClaudeCodeOnly)
@@ -17074,6 +17255,14 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.ImagePrice2k()
 	case group.FieldImagePrice4k:
 		return m.ImagePrice4k()
+	case group.FieldPeakRateEnabled:
+		return m.PeakRateEnabled()
+	case group.FieldPeakStart:
+		return m.PeakStart()
+	case group.FieldPeakEnd:
+		return m.PeakEnd()
+	case group.FieldPeakRateMultiplier:
+		return m.PeakRateMultiplier()
 	case group.FieldClaudeCodeOnly:
 		return m.ClaudeCodeOnly()
 	case group.FieldFallbackGroupID:
@@ -17151,6 +17340,14 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldImagePrice2k(ctx)
 	case group.FieldImagePrice4k:
 		return m.OldImagePrice4k(ctx)
+	case group.FieldPeakRateEnabled:
+		return m.OldPeakRateEnabled(ctx)
+	case group.FieldPeakStart:
+		return m.OldPeakStart(ctx)
+	case group.FieldPeakEnd:
+		return m.OldPeakEnd(ctx)
+	case group.FieldPeakRateMultiplier:
+		return m.OldPeakRateMultiplier(ctx)
 	case group.FieldClaudeCodeOnly:
 		return m.OldClaudeCodeOnly(ctx)
 	case group.FieldFallbackGroupID:
@@ -17328,6 +17525,34 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetImagePrice4k(v)
 		return nil
+	case group.FieldPeakRateEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakRateEnabled(v)
+		return nil
+	case group.FieldPeakStart:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakStart(v)
+		return nil
+	case group.FieldPeakEnd:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakEnd(v)
+		return nil
+	case group.FieldPeakRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPeakRateMultiplier(v)
+		return nil
 	case group.FieldClaudeCodeOnly:
 		v, ok := value.(bool)
 		if !ok {
@@ -17461,6 +17686,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addimage_price_4k != nil {
 		fields = append(fields, group.FieldImagePrice4k)
 	}
+	if m.addpeak_rate_multiplier != nil {
+		fields = append(fields, group.FieldPeakRateMultiplier)
+	}
 	if m.addfallback_group_id != nil {
 		fields = append(fields, group.FieldFallbackGroupID)
 	}
@@ -17499,6 +17727,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedImagePrice2k()
 	case group.FieldImagePrice4k:
 		return m.AddedImagePrice4k()
+	case group.FieldPeakRateMultiplier:
+		return m.AddedPeakRateMultiplier()
 	case group.FieldFallbackGroupID:
 		return m.AddedFallbackGroupID()
 	case group.FieldFallbackGroupIDOnInvalidRequest:
@@ -17578,6 +17808,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddImagePrice4k(v)
+		return nil
+	case group.FieldPeakRateMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPeakRateMultiplier(v)
 		return nil
 	case group.FieldFallbackGroupID:
 		v, ok := value.(int64)
@@ -17762,6 +17999,18 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldImagePrice4k:
 		m.ResetImagePrice4k()
+		return nil
+	case group.FieldPeakRateEnabled:
+		m.ResetPeakRateEnabled()
+		return nil
+	case group.FieldPeakStart:
+		m.ResetPeakStart()
+		return nil
+	case group.FieldPeakEnd:
+		m.ResetPeakEnd()
+		return nil
+	case group.FieldPeakRateMultiplier:
+		m.ResetPeakRateMultiplier()
 		return nil
 	case group.FieldClaudeCodeOnly:
 		m.ResetClaudeCodeOnly()
