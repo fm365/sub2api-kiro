@@ -211,26 +211,28 @@ git branch -d merge/sync-upstream-YYYYMMDD
 | `b3f796972` | feat(anthropic): treat 7d_oi (Fable) window 429 as model-level rate limit | 已合入 main |
 | `089a7b7fa` | feat(keys): add api key concurrency stats | 已合入 main |
 
-### 6.2 必修高风险（Critical，需立即评估移植）
+### 6.2 必修高风险（Critical，需立即评估移植） — **全部合入完成 ✅**
+
+> 抓取日期：2026-07-08；合入完成：2026-07-08
 
 #### 安全 / 凭证（CWE）
-- **`0f8e2d093`** `fix(security): 屏蔽 admin 账号接口返回的敏感凭证字段` — 12 文件 510 行新增，引入 `account_credentials_redact.go` + `credentials_redact.go`，admin 端账号数据接口必须过滤敏感字段。
-- **`11b601717`** `fix: return 404 instead of 403 for unauthorized key access to prevent ID oracle (CWE-204)` — 鉴权绕过信息泄露。
-- **`0ae332961`** `fix: sanitize API key name with html.EscapeString to prevent stored XSS (CWE-79)` — 前端 XSS。
-- **`bbd970249`** `fix(frontend): bump form-data to >=4.0.6 via pnpm override` — 前端依赖安全。
+- ✅ **`0f8e2d093`** `fix(security): 屏蔽 admin 账号接口返回的敏感凭证字段` → 等效合入 `1f3449868`（12 文件 510 行）
+- ✅ **`11b601717`** `fix: return 404 instead of 403 for unauthorized key access to prevent ID oracle (CWE-204)` → 等效合入 `50ec9725`（PR #17）
+- ✅ **`0ae332961`** `fix: sanitize API key name with html.EscapeString to prevent stored XSS (CWE-79)` → 等效合入 `be4ad3e7`（PR #17）
+- ✅ **`bbd970249`** `fix(frontend): bump form-data to >=4.0.6 via pnpm override` → PR #19（form-data 4.0.5 → 4.0.6，GHSA-hmw2-7cc7-3qxx）
 
 #### 依赖与稳定性
-- **`a4f942d8a`** `fix(deps): 升级 AWS SDK 修复 govulncheck 报告的 GO-2026-5764` — 漏洞升级。
-- **`a1b2b32e0`** `fix: prevent silent usage_logs drops under queue overflow (#3656)` — usage_log 在队列溢出时静默丢失（计费关键链路）。
-- **`f3a3a0869`** `优化并发槽位清理` — 资源回收。
-- **`44995404e`** `fix(docker): pin frontend builder pnpm to v9` — 锁定 pnpm。
+- ✅ **`a4f942d8a`** `fix(deps): 升级 AWS SDK 修复 govulncheck 报告的 GO-2026-5764` → PR #16
+- ✅ **`a1b2b32e0`** `fix: prevent silent usage_logs drops under queue overflow (#3656)` → 等效合入 `c3d208352`（7 文件 +93/-32，含下游定制）
+- ✅ **`f3a3a0869`** `优化并发槽位清理` → 等效合入 `cfdd600b4`
+- ✅ **`44995404e`** `fix(docker): pin frontend builder pnpm to v9` → 本项目已钉到 `pnpm@9.15.4`（比上游 `pnpm@9` 更严格，无需调整）
 
 #### 与本项目约定 / Downstream 兼容性高度相关
-- **`6cfb7898d`** `fix(claude-mimicry): drop the cch sign to match new Claude Code CLI` — **与约定 #4 (billing block 不含 cch) 强相关**：上游已完全去掉 cch，本项目需要在 billing 链路确认无 cch 残留。
-- **`20f3f2049`** `fix(gateway): complete MarkResponseCommitted coverage for all platforms` — **与约定 #3 (MarkResponseCommitted 必须调用) 强相关**：补齐全平台覆盖。
-- **`efbf6d209`** `fix(test): update FilterThinkingBlocksForRetry call to use mappedModel param` — **与约定 #1 (mappedModel 必传) 强相关**。
-- **`5cb8cdd36`** `test(claude-code): detection recognizes the new-CLI billing block (no cch)` — Claude Code CLI 指纹识别测试。
-- **`6c7203d83`** `fix(gateway): preserve SSE event:error body so ops logs reflect real upstream errors` — 配合约定 #2 (readUpstreamErrorBody) 一并核对。
+- ✅ **`6cfb7898d`** `fix(claude-mimicry): drop the cch sign to match new Claude Code CLI` → cch 字段已去除；上游附带的 anthropic-beta 计算重构与下游结构冲突，跳过（无需为重构部分承担冲突成本）
+- ✅ **`20f3f2049`** `fix(gateway): complete MarkResponseCommitted coverage for all platforms` → PR #18
+- ✅ **`efbf6d209`** `fix(test): update FilterThinkingBlocksForRetry call to use mappedModel param` → 已合入 main（`a5840ade8` 系列）
+- ✅ **`5cb8cdd36`** `test(claude-code): detection recognizes the new-CLI billing block (no cch)` → 等效测试已存在（`TestClaudeCodeValidator_BillingBlockRecognizedWithoutCCH`、`TestClaudeCodeValidator_NoCCHBlockStillRequiresClaudeCodeUA`）
+- ✅ **`6c7203d83`** `fix(gateway): preserve SSE event:error body so ops logs reflect real upstream errors` → 等效合入 `12a2db1c2`
 
 ### 6.3 高优先级（Important，建议近期处理）
 
