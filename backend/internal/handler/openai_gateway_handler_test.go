@@ -530,7 +530,11 @@ func TestOpenAIResponses_RejectsMessageIDAsPreviousResponseID(t *testing.T) {
 	require.Contains(t, w.Body.String(), "previous_response_id must be a response.id")
 }
 
-func TestOpenAIResponses_RejectsHTTPContinuationPreviousResponseID(t *testing.T) {
+func TestOpenAIResponses_StripsPreviousResponseIDInHTTPMode(t *testing.T) {
+	// In HTTP mode, response continuation via previous_response_id is not supported
+	// (only Responses WebSocket v2 supports it). Instead of rejecting, the handler
+	// strips the field and continues processing so HTTP clients (e.g. Codex Desktop
+	// with custom provider) can still work using the explicit input array.
 	gin.SetMode(gin.TestMode)
 
 	w := httptest.NewRecorder()
@@ -554,9 +558,11 @@ func TestOpenAIResponses_RejectsHTTPContinuationPreviousResponseID(t *testing.T)
 	h := newOpenAIHandlerForPreviousResponseIDValidation(t, nil)
 	h.Responses(c)
 
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "Responses WebSocket v2")
-	require.Contains(t, w.Body.String(), "previous_response_id")
+	// The request must NOT be rejected as a bad request — previous_response_id is
+	// stripped and the request flows downstream. Without available accounts we
+	// expect a downstream failure (5xx), not 400.
+	require.NotEqual(t, http.StatusBadRequest, w.Code)
+	require.NotContains(t, w.Body.String(), "previous_response_id must be a response.id")
 }
 
 func TestOpenAIResponses_FunctionCallOutputHTTPGuidanceDoesNotSuggestPreviousResponseReuse(t *testing.T) {
