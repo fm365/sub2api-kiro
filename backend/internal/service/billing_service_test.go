@@ -264,14 +264,148 @@ func TestCalculateCost_OpenAIGPT54LongContextAppliesWholeSessionMultipliers(t *t
 	require.InDelta(t, expectedInput+expectedOutput, cost.ActualCost, 1e-10)
 }
 
+// 回归测试 #2293：长上下文计费触发时，cache_read_tokens 也应应用 LongContextInputMultiplier。
+// 修复前：CacheReadCost = tokens * 0.25e-6 （漏乘倍率，少计费用）。
+// 修复后：CacheReadCost = tokens * 0.25e-6 * LongContextInputMultiplier(=2.0)。
+func TestCalculateCost_OpenAIGPT54LongContextAppliesMultiplierToCacheRead(t *testing.T) {
+	svc := newTestBillingService()
+
+	// InputTokens + CacheReadTokens = 1000 + 300000 = 301000 > 272000 阈值
+	tokens := UsageTokens{
+		InputTokens:     1000,
+		CacheReadTokens: 300000,
+		OutputTokens:    1000,
+	}
+
+	cost, err := svc.CalculateCost("gpt-5.4-2026-03-05", tokens, 1.0)
+	require.NoError(t, err)
+
+	expectedInput := float64(tokens.InputTokens) * 2.5e-6 * 2.0
+	expectedOutput := float64(tokens.OutputTokens) * 15e-6 * 1.5
+	expectedCacheRead := float64(tokens.CacheReadTokens) * 0.25e-6 * 2.0
+
+	require.InDelta(t, expectedInput, cost.InputCost, 1e-10)
+	require.InDelta(t, expectedOutput, cost.OutputCost, 1e-10)
+	require.InDelta(t, expectedCacheRead, cost.CacheReadCost, 1e-10,
+		"cache_read_cost should be scaled by LongContextInputMultiplier when long-context pricing applies (issue #2293)")
+
+	expectedTotal := expectedInput + expectedOutput + expectedCacheRead
+	require.InDelta(t, expectedTotal, cost.TotalCost, 1e-10)
+	require.InDelta(t, expectedTotal, cost.ActualCost, 1e-10)
+}
+
+// 阴性测试：未触发长上下文时，cache_read_price 不应被错误地乘以倍率。
+func TestCalculateCost_OpenAIGPT54NoLongContextKeepsCacheReadAtBasePrice(t *testing.T) {
+	svc := newTestBillingService()
+
+	// InputTokens + CacheReadTokens = 1000 + 100000 = 101000 < 272000 阈值，不触发长上下文
+	tokens := UsageTokens{
+		InputTokens:     1000,
+		CacheReadTokens: 100000,
+		OutputTokens:    1000,
+	}
+
+	cost, err := svc.CalculateCost("gpt-5.4-2026-03-05", tokens, 1.0)
+	require.NoError(t, err)
+
+	expectedCacheRead := float64(tokens.CacheReadTokens) * 0.25e-6
+	require.InDelta(t, expectedCacheRead, cost.CacheReadCost, 1e-10,
+		"cache_read_cost should remain at base price when below long-context threshold")
+}
+
+// 回归测试 #2816 follow-up：长上下文计费触发时，cache_creation_tokens 也应应用
+// LongContextInputMultiplier。computeCacheCreationCost 直接读取 pricing.* 价格，
+// 不经过 computeTokenBreakdown 内的 inputPrice / cacheReadPrice 倍率修改，因此
+// 修复前 cache_creation 部分会按基础价计算，少计费用约 50%（默认倍率 2.0）。
+func TestCalculateCost_OpenAIGPT54LongContextAppliesMultiplierToCacheCreation(t *testing.T) {
+	svc := newTestBillingService()
+
+	// InputTokens + CacheReadTokens = 1000 + 300000 = 301000 > 272000 阈值
+	tokens := UsageTokens{
+		InputTokens:         1000,
+		CacheReadTokens:     300000,
+		CacheCreationTokens: 10000,
+		OutputTokens:        1000,
+	}
+
+	cost, err := svc.CalculateCost("gpt-5.4-2026-03-05", tokens, 1.0)
+	require.NoError(t, err)
+
+	// gpt-5.4 fallback: CacheCreationPricePerToken = 2.5e-6, LongContextInputMultiplier = 2.0
+	expectedCacheCreation := float64(tokens.CacheCreationTokens) * 2.5e-6 * 2.0
+	require.InDelta(t, expectedCacheCreation, cost.CacheCreationCost, 1e-10,
+		"cache_creation_cost should be scaled by LongContextInputMultiplier when long-context pricing applies")
+}
+
+// 阴性测试：未触发长上下文时，cache_creation_price 不应被错误地乘以倍率。
+func TestCalculateCost_OpenAIGPT54NoLongContextKeepsCacheCreationAtBasePrice(t *testing.T) {
+	svc := newTestBillingService()
+
+	// InputTokens + CacheReadTokens = 1000 + 100000 = 101000 < 272000 阈值，不触发长上下文
+	tokens := UsageTokens{
+		InputTokens:         1000,
+		CacheReadTokens:     100000,
+		CacheCreationTokens: 10000,
+		OutputTokens:        1000,
+	}
+
+	cost, err := svc.CalculateCost("gpt-5.4-2026-03-05", tokens, 1.0)
+	require.NoError(t, err)
+
+	expectedCacheCreation := float64(tokens.CacheCreationTokens) * 2.5e-6
+	require.InDelta(t, expectedCacheCreation, cost.CacheCreationCost, 1e-10,
+		"cache_creation_cost should remain at base price when below long-context threshold")
+}
+
+// 覆盖 5m / 1h ephemeral 分类计费路径：长上下文触发时两档价格都应被倍率缩放。
+// 使用手工构造的 pricing（参考 TestCalculateCost_SupportsCacheBreakdown 的写法）
+// 以便同时控制 SupportsCacheBreakdown + 长上下文阈值。
+func TestCalculateCost_LongContextAppliesMultiplierToCacheCreation5mAnd1h(t *testing.T) {
+	svc := &BillingService{
+		cfg: &config.Config{},
+		fallbackPrices: map[string]*ModelPricing{
+			"claude-sonnet-4": {
+				InputPricePerToken:          3e-6,
+				OutputPricePerToken:         15e-6,
+				CacheReadPricePerToken:      0.3e-6,
+				SupportsCacheBreakdown:      true,
+				CacheCreation5mPrice:        4e-6,
+				CacheCreation1hPrice:        5e-6,
+				LongContextInputThreshold:   272000,
+				LongContextInputMultiplier:  2.0,
+				LongContextOutputMultiplier: 1.5,
+			},
+		},
+	}
+
+	// InputTokens + CacheReadTokens = 1000 + 300000 = 301000 > 272000 阈值
+	tokens := UsageTokens{
+		InputTokens:           1000,
+		CacheReadTokens:       300000,
+		CacheCreation5mTokens: 8000,
+		CacheCreation1hTokens: 4000,
+		OutputTokens:          1000,
+	}
+
+	cost, err := svc.CalculateCost("claude-sonnet-4", tokens, 1.0)
+	require.NoError(t, err)
+
+	expected5m := float64(tokens.CacheCreation5mTokens) * 4e-6 * 2.0
+	expected1h := float64(tokens.CacheCreation1hTokens) * 5e-6 * 2.0
+	require.InDelta(t, expected5m+expected1h, cost.CacheCreationCost, 1e-10,
+		"both 5m and 1h cache_creation prices should be scaled by LongContextInputMultiplier")
+}
+
 func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 	svc := newTestBillingService()
 
 	tests := []struct {
-		name             string
-		model            string
-		expectedInput    float64
-		expectNilPricing bool
+		name              string
+		model             string
+		expectedInput     float64
+		expectedOutput    float64
+		expectedCacheRead float64
+		expectNilPricing  bool
 	}{
 		{name: "empty model", model: "   ", expectNilPricing: true},
 		{name: "claude opus 4.6", model: "claude-opus-4.6-20260201", expectedInput: 5e-6},
@@ -287,7 +421,240 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "openai legacy gpt5.1 codex falls back to gpt5.3 codex", model: "gpt-5.1-codex", expectedInput: 1.5e-6},
 		{name: "openai legacy codex mini latest falls back to gpt5.3 codex", model: "codex-mini-latest", expectedInput: 1.5e-6},
 		{name: "openai unknown no fallback", model: "gpt-unknown-model", expectNilPricing: true},
-		{name: "non supported family", model: "qwen-max", expectNilPricing: true},
+
+		{
+			name:              "deepseek v4 pro",
+			model:             "deepseek-v4-pro",
+			expectedInput:     4.35e-7,
+			expectedOutput:    8.7e-7,
+			expectedCacheRead: 3.625e-9,
+		},
+		{
+			name:              "deepseek v4 flash",
+			model:             "deepseek-v4-flash",
+			expectedInput:     1.4e-7,
+			expectedOutput:    2.8e-7,
+			expectedCacheRead: 2.8e-9,
+		},
+		{
+			name:              "deepseek chat alias → flash",
+			model:             "deepseek-chat",
+			expectedInput:     1.4e-7,
+			expectedOutput:    2.8e-7,
+			expectedCacheRead: 2.8e-9,
+		},
+		{
+			name:              "deepseek reasoner alias → flash",
+			model:             "deepseek-reasoner",
+			expectedInput:     1.4e-7,
+			expectedOutput:    2.8e-7,
+			expectedCacheRead: 2.8e-9,
+		},
+
+		// ---- 智谱 GLM（z.ai USD 口径）----
+		{
+			name:              "glm 5.1 flagship",
+			model:             "glm-5.1",
+			expectedInput:     1.4e-6,
+			expectedOutput:    4.4e-6,
+			expectedCacheRead: 0.26e-6,
+		},
+		{
+			name:              "glm 5 base",
+			model:             "glm-5",
+			expectedInput:     1e-6,
+			expectedOutput:    3.2e-6,
+			expectedCacheRead: 0.2e-6,
+		},
+		{
+			name:              "glm 5 turbo",
+			model:             "glm-5-turbo",
+			expectedInput:     1.2e-6,
+			expectedOutput:    4e-6,
+			expectedCacheRead: 0.24e-6,
+		},
+		{
+			name:              "glm 4.7",
+			model:             "glm-4.7",
+			expectedInput:     0.6e-6,
+			expectedOutput:    2.2e-6,
+			expectedCacheRead: 0.11e-6,
+		},
+		{
+			name:              "glm 4.6",
+			model:             "glm-4.6",
+			expectedInput:     0.6e-6,
+			expectedOutput:    2.2e-6,
+			expectedCacheRead: 0.11e-6,
+		},
+		{
+			name:              "glm 4.5",
+			model:             "glm-4.5",
+			expectedInput:     0.6e-6,
+			expectedOutput:    2.2e-6,
+			expectedCacheRead: 0.11e-6,
+		},
+		{
+			name:              "glm 4.5-x premium",
+			model:             "glm-4.5-x",
+			expectedInput:     2.2e-6,
+			expectedOutput:    8.9e-6,
+			expectedCacheRead: 0.45e-6,
+		},
+		{
+			name:              "glm 4.5-air lightweight",
+			model:             "glm-4.5-air",
+			expectedInput:     0.2e-6,
+			expectedOutput:    1.1e-6,
+			expectedCacheRead: 0.03e-6,
+		},
+		{
+			name:              "glm 4.7-flashx",
+			model:             "glm-4.7-flashx",
+			expectedInput:     0.07e-6,
+			expectedOutput:    0.4e-6,
+			expectedCacheRead: 0.01e-6,
+		},
+		{
+			name:              "glm 4.5-flash free tier",
+			model:             "glm-4.5-flash",
+			expectedInput:     0, // Free tier on z.ai
+			expectedOutput:    0,
+			expectedCacheRead: 0,
+		},
+		{
+			name:              "glm 4.7-flash free tier",
+			model:             "glm-4.7-flash",
+			expectedInput:     0,
+			expectedOutput:    0,
+			expectedCacheRead: 0,
+		},
+		{
+			name:              "glm 4-32b legacy",
+			model:             "glm-4-32b-0414-128k",
+			expectedInput:     0.1e-6,
+			expectedOutput:    0.1e-6,
+			expectedCacheRead: 0,
+		},
+		// 关键：5.1 必须先于 5 匹配（避免被 glm-5 抢走）
+		{
+			name:              "glm 5.1 vs glm 5 ordering (verbatim 5.1)",
+			model:             "glm-5.1",
+			expectedInput:     1.4e-6, // = glm-5.1 价格
+			expectedOutput:    4.4e-6,
+			expectedCacheRead: 0.26e-6,
+		},
+		{
+			name:              "glm 4.5-air vs glm 4.5 ordering",
+			model:             "glm-4.5-air",
+			expectedInput:     0.2e-6, // = glm-4.5-air 价格（不是 glm-4.5 的 0.6e-6）
+			expectedOutput:    1.1e-6,
+			expectedCacheRead: 0.03e-6,
+		},
+
+		// ---- 月之暗面 Kimi ----
+		{
+			name:              "kimi k2.6 flagship",
+			model:             "kimi-k2.6",
+			expectedInput:     0.95e-6,
+			expectedOutput:    4e-6,
+			expectedCacheRead: 0.15e-6,
+		},
+		{
+			name:              "kimi k2.5",
+			model:             "kimi-k2.5",
+			expectedInput:     0.60e-6,
+			expectedOutput:    3e-6,
+			expectedCacheRead: 0.098e-6,
+		},
+		{
+			name:              "kimi k2-thinking",
+			model:             "kimi-k2-thinking",
+			expectedInput:     0.56e-6,
+			expectedOutput:    2.24e-6,
+			expectedCacheRead: 0.14e-6,
+		},
+		{
+			name:              "kimi k2 base",
+			model:             "kimi-k2",
+			expectedInput:     0.56e-6,
+			expectedOutput:    2.24e-6,
+			expectedCacheRead: 0.14e-6,
+		},
+		// 关键：k2.6 / k2.5 / k2-thinking 必须先于 k2 匹配
+		{
+			name:              "kimi k2.6 vs k2 ordering",
+			model:             "kimi-k2.6",
+			expectedInput:     0.95e-6, // = k2.6 不是 k2 的 0.56e-6
+			expectedOutput:    4e-6,
+			expectedCacheRead: 0.15e-6,
+		},
+		{
+			name:              "kimi k2 thinking hyphenated variant",
+			model:             "kimi-k2-thinking-preview",
+			expectedInput:     0.56e-6,
+			expectedOutput:    2.24e-6,
+			expectedCacheRead: 0.14e-6,
+		},
+
+		// ---- MiniMax M 系列 ----
+		{
+			name:              "minimax m3",
+			model:             "minimax-m3",
+			expectedInput:     0.60e-6,
+			expectedOutput:    2.40e-6,
+			expectedCacheRead: 0.12e-6,
+		},
+		{
+			name:              "minimax m3 long ctx boundary keep standard tier",
+			model:             "minimax-m3-long", // 仍按 standard tier (≤512K)
+			expectedInput:     0.60e-6,
+			expectedOutput:    2.40e-6,
+			expectedCacheRead: 0.12e-6,
+		},
+		{
+			name:              "minimax m2.7",
+			model:             "minimax-m2.7",
+			expectedInput:     0.30e-6,
+			expectedOutput:    1.20e-6,
+			expectedCacheRead: 0.06e-6,
+		},
+		{
+			name:              "minimax m2.7 highspeed",
+			model:             "minimax-m2.7-highspeed",
+			expectedInput:     0.60e-6,
+			expectedOutput:    2.40e-6,
+			expectedCacheRead: 0.06e-6,
+		},
+		{
+			name:              "minimax m2.5",
+			model:             "minimax-m2.5",
+			expectedInput:     0.30e-6,
+			expectedOutput:    1.20e-6,
+			expectedCacheRead: 0.03e-6,
+		},
+		{
+			name:              "minimax m2 legacy",
+			model:             "minimax-m2",
+			expectedInput:     0.30e-6,
+			expectedOutput:    1.20e-6,
+			expectedCacheRead: 0.03e-6,
+		},
+
+		// ---- 负向用例：未覆盖的国产厂商 / alias 不应误计价 ----
+		{name: "qwen unknown no fallback", model: "qwen-max", expectNilPricing: true},
+		{name: "doubao unknown no fallback", model: "doubao-pro", expectNilPricing: true},
+		{name: "hunyuan unknown no fallback", model: "hunyuan-t1", expectNilPricing: true},
+		{name: "moonshot v1 not covered", model: "moonshot-v1-8k", expectNilPricing: true},
+		// kimi-k2-0905 / kimi-k2-0711 官方未公布独立价，走 kimi-k2 隐性回退（接受）——
+		// 如未来官方公布独立价，需在 getFallbackPricing 加显式分支。
+		{
+			name:              "kimi k2-0905-preview implicit fallback to k2",
+			model:             "kimi-k2-0905-preview",
+			expectedInput:     0.56e-6,
+			expectedOutput:    2.24e-6,
+			expectedCacheRead: 0.14e-6,
+		},
 	}
 
 	for _, tt := range tests {
@@ -299,6 +666,12 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			}
 			require.NotNil(t, pricing)
 			require.InDelta(t, tt.expectedInput, pricing.InputPricePerToken, 1e-12)
+			if tt.expectedOutput > 0 {
+				require.InDelta(t, tt.expectedOutput, pricing.OutputPricePerToken, 1e-12)
+			}
+			if tt.expectedCacheRead > 0 {
+				require.InDelta(t, tt.expectedCacheRead, pricing.CacheReadPricePerToken, 1e-12)
+			}
 		})
 	}
 }
