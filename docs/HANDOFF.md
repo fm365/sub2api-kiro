@@ -234,6 +234,22 @@ git branch -d merge/sync-upstream-YYYYMMDD
 - ✅ **`5cb8cdd36`** `test(claude-code): detection recognizes the new-CLI billing block (no cch)` → 等效测试已存在（`TestClaudeCodeValidator_BillingBlockRecognizedWithoutCCH`、`TestClaudeCodeValidator_NoCCHBlockStillRequiresClaudeCodeUA`）
 - ✅ **`6c7203d83`** `fix(gateway): preserve SSE event:error body so ops logs reflect real upstream errors` → 等效合入 `12a2db1c2`
 
+## §6.3 合入进度追踪（2026-07-09）
+
+| Batch | 主题 | 上游 commits | 状态 | PR |
+|-------|------|-------------|------|-----|
+| I | Gateway thinking filter / Vertex anthropic-beta / DeepSeek reasoning_effort | `40e1cc14b`, `6baf00d78`, `142d8c361` | ✅ 已合入 | PR #22 |
+| II | Ops SLA / 容量错误标记 | `6acb46c11`, `429adbc72`, `ae6ee23e2` | ✅ 已合入 | PR #23 |
+| III | Token refresh non-retryable | `bec1e2b69` | ✅ 已合入 | 已存在 main |
+| **IV** | **OpenAI 高级调度器** | `f26ca5661`, `0fd2e9216`, `6ae5fc31b` | **⏸ 跳过** | — |
+| **V** | **Account header override** | `ec7b20649`, `31b6e0d94` | **⏸ 跳过** | — |
+| VI | Token refresh non-retryable 集合 | `0a97a5f46`, `fa8f1749f`, `727ac3f68` | **⏸ 跳过** | — |
+| VII | Grok OAuth / OpenAI WSv2 / standalone fixes | `b2e2c7e69`…`2dc1387b5` (15 commits) | **⏸ 跳过** | — |
+
+> **跳过原因**：上游 `Wei-Shaw/sub2api` 近期进行了大规模重构（拆分 monolithic 文件为多个小文件），同时并行开发了多个特性（Grok/xai 包、Codex 限制策略、用户平台配额、OpenAI 高级调度器、Plugin 系统等）。这些特性之间存在交叉依赖，cherry-pick 单个 commit 会产生大量缺失类型/函数引用，无法独立构建。
+> 
+> **建议方案**：等待上游某个稳定里程碑（如大版本发布）后，使用 `git merge` 而非 cherry-pick 进行批量合入。
+
 ### 6.3 高优先级（Important，建议近期处理）
 
 #### Gateway / 网关
