@@ -133,6 +133,7 @@ docs/*
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/UPSTREAM_SYNC_TRACKER.md
 !docs/UPSTREAM_SYNC_STRATEGY.md
+!docs/STRATEGY_B_IMPLEMENTATION_PLAN.md
 .serena/
 .codex/
 frontend/coverage/
