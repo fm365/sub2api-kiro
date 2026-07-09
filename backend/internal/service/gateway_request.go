@@ -12,6 +12,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -720,6 +722,44 @@ func removeThinkingDependentContextStrategies(body []byte) []byte {
 		return b
 	}
 	return body
+}
+
+// anthropicBetaContextManagementToken is the beta token that enables context_management.
+// Keep aligned with claude.BetaContextManagement.
+const anthropicBetaContextManagementToken = claude.BetaContextManagement
+
+// sanitizeAnthropicBodyForBetaTokens enforces the Anthropic body↔beta capability
+// constraint: context_management is accepted only when the outgoing anthropic-beta
+// header includes context-management-2025-06-27. It returns the original body on
+// malformed/failed rewrites (fail-safe) and reports whether a deletion happened.
+func sanitizeAnthropicBodyForBetaTokens(body []byte, anthropicBetaHeader string) ([]byte, bool) {
+	if len(body) == 0 {
+		return body, false
+	}
+	if !gjson.GetBytes(body, "context_management").Exists() {
+		return body, false
+	}
+	if anthropicBetaTokensContains(anthropicBetaHeader, anthropicBetaContextManagementToken) {
+		return body, false
+	}
+	out, err := sjson.DeleteBytes(body, "context_management")
+	if err != nil {
+		logger.LegacyPrintf("service.gateway", "[CtxMgmtSanitize] failed to remove context_management: %v", err)
+		return body, false
+	}
+	return out, true
+}
+
+func anthropicBetaTokensContains(header, token string) bool {
+	if header == "" || token == "" {
+		return false
+	}
+	for _, part := range strings.Split(header, ",") {
+		if strings.TrimSpace(part) == token {
+			return true
+		}
+	}
+	return false
 }
 
 // FilterSignatureSensitiveBlocksForRetry is a stronger retry filter for cases where upstream errors indicate
