@@ -31,8 +31,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -4758,7 +4758,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if readErr == nil {
 				_ = resp.Body.Close()
 
-				if s.shouldRectifySignatureError(ctx, account, respBody) {
+				if s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 						Platform:           account.Platform,
 						AccountID:          account.ID,
@@ -4833,7 +4833,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 								msg2 := extractUpstreamErrorMessage(retryRespBody)
 								if looksLikeToolSignatureError(msg2) && time.Since(retryStart) < maxRetryElapsed {
 									logger.LegacyPrintf("service.gateway", "Account %d: signature retry still failing and looks tool-related, retrying with tool blocks downgraded", account.ID)
-									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body)
+									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body, reqModel)
 									retryCtx2, releaseRetryCtx2 := detachStreamUpstreamContext(ctx, reqStream)
 									retryReq2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									releaseRetryCtx2()
@@ -6501,6 +6501,48 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	return req, nil
 }
 
+// vertexSupportedBetaTokens 是 Vertex AI 的 Anthropic 端点接受的 anthropic-beta
+// 白名单。Vertex 对任何未知 token 直接 HTTP 400，故采用白名单（与 Bedrock 的
+// bedrockSupportedBetaTokens 同思路）而非黑名单：未来 Claude Code 新增的、Vertex 尚未
+// 支持的 token 天然被剥离。当 Vertex 新增支持某 beta 时在此补充。
+//
+// 明确排除（issue #3358 中 Vertex 报 400 的 token）：advisor-tool-2026-03-01、
+// prompt-caching-scope-2026-01-05、redact-thinking-2026-02-12、
+// thinking-token-count-2026-05-13；以及 claude-code-20250219 / oauth-2025-04-20 等
+// 客户端身份 beta——Vertex service_account 走 Bearer 鉴权，不需要它们。
+var vertexSupportedBetaTokens = map[string]bool{
+	"context-1m-2025-08-07":                  true,
+	"context-management-2025-06-27":          true,
+	"fine-grained-tool-streaming-2025-05-14": true,
+	"interleaved-thinking-2025-05-14":        true,
+}
+
+// filterVertexBetaTokens 解析 client 的 anthropic-beta header，先剔除 drop 集合中的
+// token（BetaPolicy filter + 默认 drop），再只保留 Vertex 支持的 token，去重后逗号拼接。
+// 返回最终 header（可能为空字符串）。
+func filterVertexBetaTokens(header string, drop map[string]struct{}) string {
+	tokens := parseAnthropicBetaHeader(header)
+	if len(tokens) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(tokens))
+	seen := make(map[string]bool, len(tokens))
+	for _, t := range tokens {
+		if _, dropped := drop[t]; dropped {
+			continue
+		}
+		if !vertexSupportedBetaTokens[t] {
+			continue
+		}
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return strings.Join(out, ",")
+}
+
 func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	ctx context.Context,
 	c *gin.Context,
@@ -6513,6 +6555,28 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	vertexBody, err := buildVertexAnthropicRequestBody(body)
 	if err != nil {
 		return nil, err
+	}
+	// 计算最终 outgoing anthropic-beta。Vertex AI 的 Anthropic 端点只接受一小撮
+	// beta token，未知 token 会直接 HTTP 400——近期 Claude Code CLI 透传的
+	// advisor-tool-2026-03-01 / prompt-caching-scope-2026-01-05 /
+	// redact-thinking-2026-02-12 / thinking-token-count-2026-05-13 都不被 Vertex 接受
+	// （issue #3358）。这里复用 BetaPolicy 的 block 检查（与 Bedrock 的
+	// resolveBedrockBetaTokensForRequest 对称），再按 vertexSupportedBetaTokens 白名单
+	// 剥离其余 token，使该路径与 Anthropic 直连 / Bedrock 路径行为一致。
+	clientBeta := ""
+	if c != nil && c.Request != nil {
+		clientBeta = getHeaderRaw(c.Request.Header, "anthropic-beta")
+	}
+	policy := s.evaluateBetaPolicy(ctx, clientBeta, account, modelID)
+	if policy.blockErr != nil {
+		return nil, policy.blockErr
+	}
+	finalBeta := filterVertexBetaTokens(clientBeta, mergeDropSets(policy.filterSet))
+
+	// 能力维度 sanitize：基于最终 beta（而非原始 client 值）决定是否保留 body 中的
+	// context_management，与 Anthropic 直连 / Bedrock 路径对称。
+	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(vertexBody, finalBeta); changed {
+		vertexBody = sanitized
 	}
 	setOpsUpstreamRequestBody(c, vertexBody)
 	fullURL, err := buildVertexAnthropicURL(account.VertexProjectID(), account.VertexLocation(modelID), modelID, reqStream)
@@ -6544,6 +6608,13 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	req.Header.Del("anthropic-version")
 	setHeaderRaw(req.Header, "authorization", "Bearer "+token)
 	setHeaderRaw(req.Header, "content-type", "application/json")
+
+	// 覆盖上面白名单 loop 写入的原始 client anthropic-beta，使用过滤后的最终值。
+	// finalBeta 为空（全部被剥离）时不下发该 header，与 Vertex 无 beta 请求一致。
+	deleteHeaderAllForms(req.Header, "anthropic-beta")
+	if finalBeta != "" {
+		setHeaderRaw(req.Header, "anthropic-beta", finalBeta)
+	}
 
 	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, map[string]string{
 		"url":        req.URL.String(),
@@ -6997,7 +7068,14 @@ func truncateForLog(b []byte, maxBytes int) string {
 
 // shouldRectifySignatureError 统一判断是否应触发签名整流（strip thinking blocks 并重试）。
 // 根据账号类型检查对应的开关和匹配模式。
-func (s *GatewayService) shouldRectifySignatureError(ctx context.Context, account *Account, respBody []byte) bool {
+//
+// mappedModel 用于按 thinking 协议族分流：passback-required (DeepSeek/Kimi/GLM 等) 上游
+// 的 400 不是签名缺失问题，retry 任何 thinking 变形都会破坏「原样回传」契约——直接透传
+// 错误给客户端。详见 thinking_protocol.go。
+func (s *GatewayService) shouldRectifySignatureError(ctx context.Context, account *Account, respBody []byte, mappedModel string) bool {
+	if !ShouldRectifyThinkingSignatureError(mappedModel) {
+		return false
+	}
 	if account.Type == AccountTypeAPIKey {
 		// API Key 账号：独立开关，一次读取配置
 		settings, err := s.settingService.GetRectifierSettings(ctx)
@@ -9360,7 +9438,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 检测 thinking block 签名错误（400）并重试一次（过滤 thinking blocks）
-	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody) {
+	if resp.StatusCode == 400 && s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 		logger.LegacyPrintf("service.gateway", "Account %d: detected thinking block signature error on count_tokens, retrying with filtered thinking blocks", account.ID)
 
 		filteredBody := FilterThinkingBlocksForRetry(body, reqModel)

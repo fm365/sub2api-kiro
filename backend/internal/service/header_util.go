@@ -129,6 +129,21 @@ func getHeaderRaw(h http.Header, key string) string {
 	return h.Get(key)
 }
 
+// deleteHeaderAllForms removes a header across the exact, wire-casing, canonical,
+// and lower-case forms so later raw header writes cannot coexist with stale values.
+func deleteHeaderAllForms(h http.Header, key string) {
+	if h == nil || key == "" {
+		return
+	}
+	h.Del(key)
+	delete(h, key)
+	if wk := resolveWireCasing(key); wk != key {
+		delete(h, wk)
+		h.Del(wk)
+	}
+	delete(h, strings.ToLower(key))
+}
+
 // sortHeadersByWireOrder 按照真实 Claude CLI 的 header 顺序返回排序后的 key 列表。
 // 在 headerWireOrder 中定义的 key 按其顺序排列，未定义的 key 追加到末尾。
 func sortHeadersByWireOrder(h http.Header) []string {

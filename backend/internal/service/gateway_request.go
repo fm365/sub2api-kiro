@@ -12,6 +12,8 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -722,6 +724,44 @@ func removeThinkingDependentContextStrategies(body []byte) []byte {
 	return body
 }
 
+// anthropicBetaContextManagementToken is the beta token that enables context_management.
+// Keep aligned with claude.BetaContextManagement.
+const anthropicBetaContextManagementToken = claude.BetaContextManagement
+
+// sanitizeAnthropicBodyForBetaTokens enforces the Anthropic body↔beta capability
+// constraint: context_management is accepted only when the outgoing anthropic-beta
+// header includes context-management-2025-06-27. It returns the original body on
+// malformed/failed rewrites (fail-safe) and reports whether a deletion happened.
+func sanitizeAnthropicBodyForBetaTokens(body []byte, anthropicBetaHeader string) ([]byte, bool) {
+	if len(body) == 0 {
+		return body, false
+	}
+	if !gjson.GetBytes(body, "context_management").Exists() {
+		return body, false
+	}
+	if anthropicBetaTokensContains(anthropicBetaHeader, anthropicBetaContextManagementToken) {
+		return body, false
+	}
+	out, err := sjson.DeleteBytes(body, "context_management")
+	if err != nil {
+		logger.LegacyPrintf("service.gateway", "[CtxMgmtSanitize] failed to remove context_management: %v", err)
+		return body, false
+	}
+	return out, true
+}
+
+func anthropicBetaTokensContains(header, token string) bool {
+	if header == "" || token == "" {
+		return false
+	}
+	for _, part := range strings.Split(header, ",") {
+		if strings.TrimSpace(part) == token {
+			return true
+		}
+	}
+	return false
+}
+
 // FilterSignatureSensitiveBlocksForRetry is a stronger retry filter for cases where upstream errors indicate
 // signature/thought_signature validation issues involving tool blocks.
 //
@@ -731,7 +771,14 @@ func removeThinkingDependentContextStrategies(body []byte) []byte {
 //
 // Use this only when needed: converting tool blocks to text changes model behaviour and can increase the
 // risk of prompt injection (tool output becomes plain conversation text).
-func FilterSignatureSensitiveBlocksForRetry(body []byte) []byte {
+//
+// mappedModel 同 FilterThinkingBlocksForRetry：仅 anthropic-strict 执行变形；
+// passback-required 与 unknown 都返回原 body，避免在不熟悉的上游上盲目变形。
+func FilterSignatureSensitiveBlocksForRetry(body []byte, mappedModel string) []byte {
+	if !ShouldApplyRetryFilters(mappedModel) {
+		return body
+	}
+
 	// Fast path: only run when we see likely relevant constructs.
 	if !bytes.Contains(body, []byte(`"type":"thinking"`)) &&
 		!bytes.Contains(body, []byte(`"type": "thinking"`)) &&
